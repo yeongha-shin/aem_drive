@@ -16,6 +16,7 @@ WHITE = (255, 255, 255)
 GREEN = (0, 255, 0)
 RED = (255, 0, 0)
 BLUE = (0, 0, 255)
+YELLOW = (255, 255, 0)
 
 size = (600, 1400)  # 화면을 세로로 길게
 PI = math.pi
@@ -70,23 +71,35 @@ class laneFollowingCar1(Car2):
         self.car.constant_speed = True
         self.car.speed = 100
 
-
 if __name__ == "__main__":
     t = 0
 
     screen = pygame.display.set_mode(size)
-    pygame.display.set_caption("Vertical Car Sim")
+    pygame.display.set_caption("Vertical Car Sim - Multiple Cars")
     background = pygame.Surface(screen.get_size())
     background.fill((0, 0, 0))
 
     done = False
     clock = pygame.time.Clock()
 
-    car = Car2(RED, 300, 1300, screen)  # 중앙 아래에서 시작
-    road = CurvedRoad(1200, 300, 1300, '45')  # road도 수직 이동
+    # --- Main car (user-controlled)
+    car = Car2(RED, 300, 1300, screen)
     car.constant_speed = True
     car.speed = 50
-    car.angle = -math.pi / 2
+    car.angle = -math.pi / 2  # 위쪽 방향
+
+    # --- Other cars (AI cars)
+    car2 = Car2(BLUE, 250, 1400, screen)    # 왼쪽 살짝
+    car3 = Car2(GREEN, 350, 1500, screen)   # 오른쪽 살짝
+    car4 = Car2(YELLOW, 300, 1600, screen)  # 중앙, 더 뒤
+
+    for c in [car2, car3, car4]:
+        c.constant_speed = True
+        c.speed = 40  # 느리게
+        c.angle = -math.pi / 2  # 다 위쪽
+
+    # --- Road
+    road = CurvedRoad(1200, 300, 1300, '45')
 
     screen.fill(WHITE)
 
@@ -127,15 +140,21 @@ if __name__ == "__main__":
 
         screen.fill(WHITE)
 
+        # --- Draw everything
         drawRoad(screen)
         road.plotRoad(screen)
 
         car.update(1 / rate)
+        for c in [car2, car3, car4]:
+            c.update(1 / rate)
+
         updateSteering(screen, car)
         updateSpeedometer(screen, car)
+
+        # --- Reward (only for main car)
         print(road.reward(car))
 
-        # ❗ 도착 조건: y좌표가 50보다 작으면 도착!
+        # --- Goal check
         if car.pose[1] < 50:
             print('reached y=50')
             car.speed = 0

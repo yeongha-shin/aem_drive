@@ -35,6 +35,27 @@ def dampenSpeed(speed, velocity_dampening, delta):
     return int(new_speed)
 
 
+def replace_color(image, source_color, target_color, tolerance=120):
+    """source_color(예: 빨강)에 가까운 색만 target_color로 바꾼다."""
+    image = image.copy()
+    width, height = image.get_size()
+    for x in range(width):
+        for y in range(height):
+            current_color = image.get_at((x, y))
+            if is_similar_color(current_color, source_color, tolerance):
+                new_color = pygame.Color(*target_color)
+                new_color.a = current_color.a  # 알파값 유지
+                image.set_at((x, y), new_color)
+    return image
+
+def is_similar_color(color1, color2, tolerance):
+    """두 색상이 비슷한지 확인 (RGB 거리 비교)"""
+    r1, g1, b1 = color1.r, color1.g, color1.b
+    r2, g2, b2 = color2
+    return (abs(r1 - r2) < tolerance and
+            abs(g1 - g2) < tolerance and
+            abs(b1 - b2) < tolerance)
+
 class Car2():
     def __init__(self, color, x, y, screen, speed=0):
         pygame.sprite.Sprite.__init__(self)
@@ -49,14 +70,26 @@ class Car2():
         self.screen = screen
         self.width = 50
         self.length = 100
-        self.originalImage = pygame.image.load(
-            "images/red_car.png").convert_alpha()
-        self.originalImage = pygame.transform.scale(
-            self.originalImage, (self.length, self.width))
-        # The variable that is changed whenever the car is rotated.
+
+        # self.originalImage = pygame.image.load(
+        #     "images/red_car.png").convert_alpha()
+        # self.originalImage = pygame.transform.scale(
+        #     self.originalImage, (self.length, self.width))
+        #
+        # # The variable that is changed whenever the car is rotated.
+        # self.image = self.originalImage.copy()
+        # self.rect = self.image.get_rect()
+        # self.rect.center = (x, y)
+
+        self.originalImage = pygame.image.load("images/red_car.png").convert_alpha()
+        self.originalImage = pygame.transform.scale(self.originalImage, (self.length, self.width))
+
+        self.originalImage = replace_color(self.originalImage, source_color=(255, 0, 0), target_color=self.color)
+
         self.image = self.originalImage.copy()
         self.rect = self.image.get_rect()
         self.rect.center = (x, y)
+
         self.maxSteer = math.pi / 3
         self.acceleration_rate = 5
         self.speed_dampening = 0.1
