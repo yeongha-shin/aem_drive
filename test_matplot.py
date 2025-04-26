@@ -43,6 +43,8 @@ def dampenSpeed(speed, velocity_dampening, delta):
 
 def updateSpeedometer(screen, car):
     font = pygame.font.SysFont('Calibri', 25, True, False)
+    x_base = 1200 + 50  # 오른쪽 공간 시작점
+
     if car.gear == "D":
         gear_text = font.render("Gear: Drive", True, BLACK)
     elif car.gear == "STOP":
@@ -52,13 +54,14 @@ def updateSpeedometer(screen, car):
     else:
         gear_text = font.render("Gear: unknown", True, BLACK)
 
-    screen.blit(gear_text, [300, 40])
-    speed_text = font.render("Speed: " + str(int(car.speed / 5)) + " km/h", True, BLACK)
-    screen.blit(speed_text, [300, 60])
+    screen.blit(gear_text, (x_base, 40))
+    speed_text = font.render(f"Speed: {int(car.speed)} km/h", True, BLACK)
+    screen.blit(speed_text, (x_base, 80))
 
 def updateOtherVehiclesInfo(screen, scenario, current_time_step):
     font = pygame.font.SysFont('Calibri', 20, True, False)
-    start_y = 100
+    x_base = 1400 + 50  # 오른쪽 공간 시작점
+    start_y = 150
     spacing = 30
     for idx, obstacle in enumerate(scenario.dynamic_obstacles):
         predicted_state = None
@@ -72,7 +75,7 @@ def updateOtherVehiclesInfo(screen, scenario, current_time_step):
             speed = predicted_state.velocity
             info_text = f"ID {obstacle.obstacle_id}: ({int(pos_x)}, {int(pos_y)}), {int(speed)} m/s"
             text_surface = font.render(info_text, True, BLUE)
-            screen.blit(text_surface, (50, start_y + idx * spacing))
+            screen.blit(text_surface, (x_base, start_y + idx * spacing))
 
 # ===================================
 # Car2 클래스
@@ -86,12 +89,12 @@ class Car2():
         self.pose = [x, y]
         self.width = 2  # 차량 폭 (m)
         self.length = 5  # 차량 길이 (m)
-        self.maxSteer = math.pi / 3
+        self.maxSteer = math.pi
         self.acceleration_rate = 5
         self.speed_dampening = 0.1
         self.maxSpeed = 300
         self.delta = 1 / 60
-        self.steering_elasticity = 5 / 60
+        self.steering_elasticity = 5 # 5 /60
         self.gear = "STOP"
         self.constant_speed = False
         self.steering_angle = 0
@@ -115,7 +118,7 @@ class Car2():
                 self.speed = 0
 
     def turn(self, direction):
-        new_steering_angle = self.steering_angle + direction * (math.pi / 20)
+        new_steering_angle = self.steering_angle + direction
         if new_steering_angle > self.maxSteer:
             self.steering_angle = self.maxSteer
         elif new_steering_angle < -self.maxSteer:
@@ -125,7 +128,7 @@ class Car2():
 
     def update(self, delta):
         self.delta = delta
-        self.angle += self.steering_angle * delta * self.speed / 100
+        self.angle += self.steering_angle * delta * self.speed / 20
         self.vel[0] = math.cos(self.angle) * self.speed
         self.vel[1] = math.sin(self.angle) * self.speed
         self.pose[0] += self.vel[0] * delta
@@ -157,14 +160,14 @@ max_time_step = max([obs.prediction.final_time_step for obs in scenario.dynamic_
 
 # pygame 초기화
 pygame.init()
-screen = pygame.display.set_mode((3200, 1600))
+screen = pygame.display.set_mode((2000, 1600))  # <<< 화면 크게 (맵 + 정보 공간)
 pygame.display.set_caption('CommonRoad + Car Driving')
 clock = pygame.time.Clock()
 
 # Car2 생성
 car = Car2(color='red', x=0, y=0)
 car.constant_speed = True
-car.speed = 10
+car.speed = 5
 car.angle = math.radians(60)
 
 # 시뮬레이션 시간 관리
@@ -181,16 +184,16 @@ while running:
     # 키 입력 처리
     keys = pygame.key.get_pressed()
     if keys[pygame.K_UP]:
-        car.accelerate(1)
+        car.accelerate(0.2)
     if keys[pygame.K_DOWN]:
-        car.accelerate(-1)
+        car.accelerate(-0.2)
     if keys[pygame.K_LEFT]:
-        car.turn(5)
+        car.turn(1)
     if keys[pygame.K_RIGHT]:
-        car.turn(-5)
+        car.turn(-1)
 
     # ----- CommonRoad 지도 + Car2 갱신 -----
-    fig, ax = plt.subplots(figsize=(40, 20))
+    fig, ax = plt.subplots(figsize=(40, 30))
     renderer = MPRenderer(ax=ax)
     renderer.draw_params.show_labels = False
     renderer.draw_params.time_begin = current_time_step
@@ -209,15 +212,15 @@ while running:
     raw_data = renderer_backend.buffer_rgba()
     size = canvas.get_width_height()
     background = pygame.image.frombuffer(raw_data, size, "RGBA")
-    background = pygame.transform.scale(background, (3200, 1600))
+    background = pygame.transform.scale(background, (2000, 1600))  # <<< 왼쪽만 사용
 
     plt.close(fig)
 
     # ------------------------------------------------------
 
     # 화면 그리기
-    screen.blit(background, (0, 0))
-    updateSpeedometer(screen, car)
+    screen.blit(background, (0, 0))  # <<< (0,0)부터 맵 표시
+    updateSpeedometer(screen, car)   # <<< 오른쪽에 표시
     updateOtherVehiclesInfo(screen, scenario, current_time_step)
     pygame.display.flip()
 
