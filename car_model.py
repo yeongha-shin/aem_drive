@@ -39,7 +39,7 @@ class Car2():
     def __init__(self, color, x, y, screen, speed=0):
         pygame.sprite.Sprite.__init__(self)
         self.timer = 0
-        self.time_limit = 12
+        self.time_limit = 100
         self.color = color
         self.vel = [0, 0]
         self.speed = speed
