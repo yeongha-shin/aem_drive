@@ -1,11 +1,10 @@
-# Import libraries
 import numpy as np
 import matplotlib.pyplot as plt
 import pygame
 import math
 
 from car_model import Car2
-from lane_following import CurvedRoad
+from lane_following import CurvedRoad # if needed elsewhere
 
 # Initialize pygame
 pygame.init()
@@ -55,31 +54,10 @@ def updateSpeedometer(screen, car):
     speed_text = font.render("Speed: " + str(car.speed / 5), True, BLACK)
     screen.blit(speed_text, [300, 60])
 
-def gameLoop(action, car, screen):
-    if action == 1 or action == 'a' or action == 'left':
-        car.turn(-1)
-    elif action == 2 or action == 'd' or action == 'right':
-        car.turn(1)
-
-def learningGameLoop():
-    print('more code here')
-
-class laneFollowingCar1(Car2):
-    def __init__(self):
-        super().__init__(RED, 300, 1300, screen)
-        self.car = super().car
-        self.car.constant_speed = True
-        self.car.speed = 100
-
 if __name__ == "__main__":
-    t = 0
-
+    # Set up screen and clock
     screen = pygame.display.set_mode(size)
     pygame.display.set_caption("Vertical Car Sim - Multiple Cars")
-    background = pygame.Surface(screen.get_size())
-    background.fill((0, 0, 0))
-
-    done = False
     clock = pygame.time.Clock()
 
     # --- Main car (user-controlled)
@@ -101,23 +79,18 @@ if __name__ == "__main__":
     # --- Road
     road = CurvedRoad(1200, 300, 1300, '45')
 
-    screen.fill(WHITE)
+    # Variables for deviation sampling
+    total_deviation = 0.0
+    deviation_timer = 0.0  # accumulates time until 1 second
+    sampling_interval = 1.0  # seconds
 
-    rate = 10
-
+    done = False
+    
     while not done:
-        keys = pygame.key.get_pressed()
-        if keys[pygame.K_UP]:
-            car.accelerate(1)
-        if keys[pygame.K_DOWN]:
-            car.accelerate(-1)
-        if keys[pygame.K_LEFT]:
-            car.turn(-1)
-        if keys[pygame.K_RIGHT]:
-            car.turn(1)
+        # Delta time based on frame rate
+        dt = clock.tick(60) / 1000.0  # seconds
 
-        t += 1
-
+        # --- Input handling
         for event in pygame.event.get():
             if event.type == pygame.QUIT:
                 done = True
@@ -133,37 +106,46 @@ if __name__ == "__main__":
             elif event.type == pygame.KEYUP:
                 if event.key == pygame.K_DOWN:
                     car.release_down(-1)
-                if event.key == pygame.K_UP:
+                elif event.key == pygame.K_UP:
                     car.release_down(1)
-            elif event.type == pygame.MOUSEBUTTONDOWN:
-                print("User pressed a mouse button")
 
+        # Also allow continuous key hold
+        keys = pygame.key.get_pressed()
+        if keys[pygame.K_UP]:
+            car.accelerate(1)
+        if keys[pygame.K_DOWN]:
+            car.accelerate(-1)
+        if keys[pygame.K_LEFT]:
+            car.turn(-1)
+        if keys[pygame.K_RIGHT]:
+            car.turn(1)
+
+        # --- Update simulation
         screen.fill(WHITE)
-
-        # --- Draw everything
         drawRoad(screen)
         road.plotRoad(screen)
 
-        car.update(1 / rate)
+        car.update(dt)
         for c in [car2, car3, car4]:
-            c.update(1 / rate)
+            c.update(dt)
 
         updateSteering(screen, car)
         updateSpeedometer(screen, car)
 
-        # --- Reward (only for main car)
-        print(road.reward(car))
+        # --- Deviation sampling every second
+        deviation_timer += dt
+        if deviation_timer >= sampling_interval:
+            deviation_value = road.deviation(car)
+            total_deviation += abs(deviation_value)
+            print(f"Sampled deviation: {deviation_value:.2f}, Total deviation: {total_deviation:.2f}")
+            deviation_timer -= sampling_interval
+
 
         # --- Goal check
         if car.pose[1] < 50:
-            print('reached y=50')
-            car.speed = 0
+            print('Reached y=50, simulation done.')
             done = True
-
-        if t > 10000:
-            car.speed = 0
-            print('Time out!')
-            done = True
-
+        
         pygame.display.flip()
-        clock.tick(rate)
+
+    pygame.quit()

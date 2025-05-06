@@ -31,6 +31,28 @@ class CurvedRoad():
             return self.y_offset - paramaterizedTurn(x, self.start)
         if self.type == '45':
             return self.y_offset - paramaterizedTurn45(x, self.x_offset, self.start, self.slope)
+        
+    def detect_road_center(self, screen, y_coord):
+        """
+        Detects the road center x-position on the given screen row at y_coord
+        by finding black pixels and returning their midpoint.
+        """
+        h = screen.get_height()
+        y_int = int(y_coord)
+        if y_int < 0 or y_int >= h:
+            return None
+        # Access pixel data
+        pixel_array = pygame.surfarray.pixels3d(screen)
+        # Extract row at y
+        row = pixel_array[:, y_int, :]
+        # Black pixels have RGB == (0,0,0)
+        mask = np.all(row == [0, 0, 0], axis=1)
+        black_x = np.nonzero(mask)[0]
+        if black_x.size == 0:
+            return None
+        # Center is midpoint between min and max black x
+        return int((black_x.min() + black_x.max()) / 2)
+
 
     def scanRoad(self, car):
         # x,y = car.next_position()
@@ -41,6 +63,20 @@ class CurvedRoad():
         # return [x,distance_to_road,distance_to_road**2]
         # return [x, distance_to_road, car.angle]
         return distance_to_road
+    
+    def deviation(self, car):
+        'Calculate the deviation of car center from the road center'
+        x, y = car.pose
+        #x_road = 300  #this needs to be properly defined as the road center at the car's y position
+        x_road = self.detect_road_center(car.screen, y)
+        if x_road is None:
+            # No road detected at this row; assume zero deviation or skip
+            return 0.0
+        if x_road is None:
+            return None
+        deviation = abs(x - x_road)
+        return deviation
+    
 
     def getState(self, car):
         # state = np.zeros((1,3))
