@@ -41,7 +41,7 @@ if __name__ == "__main__":
         {
             "accident_prob": 0.5,
             "traffic_density": 0.15,
-            # "manual_control": True,
+            "manual_control": True,
             "agent_policy": IDMPolicy,
             "use_render": True,
             # "debug": True,

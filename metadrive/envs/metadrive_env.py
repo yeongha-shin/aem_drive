@@ -146,6 +146,9 @@ class MetaDriveEnv(BaseEnv):
         self.start_seed = self.start_index = self.config["start_seed"]
         self.env_num = self.num_scenarios
 
+        # Add a flag to track out-of-road state
+        self._is_currently_out_of_road = False
+
     def _post_process_config(self, config):
         config = super(MetaDriveEnv, self)._post_process_config(config)
         if not config["norm_pixel"]:
@@ -242,19 +245,27 @@ class MetaDriveEnv(BaseEnv):
         vehicle = self.agents[vehicle_id]
         step_info = dict()
         step_info["cost"] = 0
-        if self._is_out_of_road(vehicle):
+        
+        # Check if vehicle is out of road
+        out_of_road = self._is_out_of_road(vehicle)
+        
+        if out_of_road:
             step_info["cost"] = self.config["out_of_road_cost"]
-            # speak_async("Out of road")
-            speak("Out of road")
-
-        elif vehicle.crash_vehicle:
+            # Only speak and show visual alert if we just went out of road
+            if not self._is_currently_out_of_road:
+                speak("Out of road")
+                self._add_out_of_road_visual_alert(vehicle)
+                self._is_currently_out_of_road = True
+        else:
+            # Reset the flag when back on road
+            self._is_currently_out_of_road = False
+        
+        if vehicle.crash_vehicle:
             step_info["cost"] = self.config["crash_vehicle_cost"]
-            # speak_async("Crash with vehicle")
             speak("Crash with vehicle")
 
         elif vehicle.crash_object:
             step_info["cost"] = self.config["crash_object_cost"]
-            # speak_async("Crash with object")
             speak("Crash with object")
 
         return step_info['cost'], step_info
@@ -342,6 +353,60 @@ class MetaDriveEnv(BaseEnv):
         self.engine.register_manager("traffic_manager", PGTrafficManager())
         if abs(self.config["accident_prob"] - 0) > 1e-2:
             self.engine.register_manager("object_manager", TrafficObjectManager())
+
+    def _add_out_of_road_visual_alert(self, vehicle):
+        """Add a red light visual indicator when vehicle goes out of road"""
+        if not hasattr(self, "_out_of_road_alert_node"):
+            # Create the alert only once
+            from panda3d.core import NodePath, TextNode
+            from direct.gui.OnscreenText import OnscreenText
+            
+            # Create a red overlay for the screen
+            self._out_of_road_alert_node = NodePath("OutOfRoadAlert")
+            self._out_of_road_alert_node.reparentTo(self.engine.aspect2d)
+            
+            # Create a semi-transparent red rectangle covering the screen
+            from direct.gui.DirectFrame import DirectFrame
+            self._out_of_road_frame = DirectFrame(
+                frameColor=(1, 0, 0, 0.3),  # Red with 30% opacity
+                frameSize=(-1, 1, -1, 1),
+                parent=self._out_of_road_alert_node
+            )
+            
+            # Add text warning
+            self._out_of_road_text = OnscreenText(
+                text="OUT OF ROAD!",
+                style=1,
+                fg=(1, 1, 1, 1),  # White text
+                pos=(0, 0),
+                scale=0.15,
+                parent=self._out_of_road_alert_node
+            )
+            
+            # Hide initially
+            self._out_of_road_alert_node.hide()
+            
+            # Schedule removal after a short time
+            self.engine.taskMgr.doMethodLater(
+                0.5,  # Display for 0.5 seconds
+                self._remove_out_of_road_visual_alert,
+                "remove_out_of_road_alert"
+            )
+        else:
+            # If already created, just show it and reschedule removal
+            self._out_of_road_alert_node.show()
+            self.engine.taskMgr.remove("remove_out_of_road_alert")
+            self.engine.taskMgr.doMethodLater(
+                0.5,
+                self._remove_out_of_road_visual_alert,
+                "remove_out_of_road_alert"
+            )
+
+    def _remove_out_of_road_visual_alert(self, task):
+        """Remove the visual alert after a delay"""
+        if hasattr(self, "_out_of_road_alert_node"):
+            self._out_of_road_alert_node.hide()
+        return task.done
 
 
 if __name__ == '__main__':
