@@ -148,6 +148,8 @@ class MetaDriveEnv(BaseEnv):
 
         # Add a flag to track out-of-road state
         self._is_currently_out_of_road = False
+        self._is_currently_crash_vehicle = False
+        self._is_currently_crash_object = False
 
     def _post_process_config(self, config):
         config = super(MetaDriveEnv, self)._post_process_config(config)
@@ -259,14 +261,28 @@ class MetaDriveEnv(BaseEnv):
         else:
             # Reset the flag when back on road
             self._is_currently_out_of_road = False
-        
-        if vehicle.crash_vehicle:
+        #
+        # if vehicle.crash_vehicle:
+        #     step_info["cost"] = self.config["crash_vehicle_cost"]
+        #     speak("Crash with vehicle")
+        #
+        #
+        # elif vehicle.crash_object:
+        #     step_info["cost"] = self.config["crash_object_cost"]
+        #     speak("Crash with object")
+
+        crash_vehicle = vehicle.crash_vehicle
+        if crash_vehicle and not self._is_currently_crash_vehicle:
             step_info["cost"] = self.config["crash_vehicle_cost"]
             speak("Crash with vehicle")
+        self._is_currently_crash_vehicle = crash_vehicle
 
-        elif vehicle.crash_object:
+        # === Crash with object ===
+        crash_object = vehicle.crash_object
+        if crash_object and not self._is_currently_crash_object:
             step_info["cost"] = self.config["crash_object_cost"]
             speak("Crash with object")
+        self._is_currently_crash_object = crash_object
 
         return step_info['cost'], step_info
 
