@@ -10,7 +10,6 @@ from direct.gui.OnscreenText import OnscreenText
 from panda3d.core import TextNode
 from direct.showbase.ShowBase import ShowBase
 
-# 수학 문제 생성 함수
 def generate_math_problem():
     a = random.randint(1, 9)
     b = random.randint(1, 9)
@@ -19,7 +18,6 @@ def generate_math_problem():
     problem = f"{a} {op} {b} = ?"
     return problem, result
 
-# 선택지 구성 함수
 def set_new_options():
     global N_value, M_value, current_answer
     correct = current_answer
@@ -32,21 +30,20 @@ def set_new_options():
         N_value, M_value = wrong, correct
     options_display.setText(f"N: {N_value}    M: {M_value}")
 
-# 키 입력 처리 함수
 def handle_input(key):
     global waiting_for_answer, showing_feedback, last_feedback_time
     global feedback_text, current_problem, current_answer
 
     if not waiting_for_answer:
-        return  # 이미 답했거나 피드백 표시 중이면 무시
+        return
 
     selected = N_value if key == 'n' else M_value
     if selected == current_answer:
         feedback_text = "Correct!"
-        result_display.setFg((0, 1, 0, 1))  # 초록색
+        result_display.setFg((0, 1, 0, 1))
     else:
         feedback_text = "Wrong!"
-        result_display.setFg((1, 0, 0, 1))  # 빨간색
+        result_display.setFg((1, 0, 0, 1))
 
     result_display.setText(feedback_text)
     last_feedback_time = time.time()
@@ -60,7 +57,6 @@ if __name__ == "__main__":
         print(HELP_MESSAGE)
         env.agent.expert_takeover = True
 
-        # 상태 변수 초기화
         current_problem, current_answer = generate_math_problem()
         last_feedback_time = None
         waiting_for_answer = True
@@ -69,7 +65,6 @@ if __name__ == "__main__":
         N_value = None
         M_value = None
 
-        # 수학 문제 표시
         math_display = OnscreenText(
             text=current_problem,
             pos=(-1.2, 0.8),
@@ -79,7 +74,6 @@ if __name__ == "__main__":
             mayChange=True
         )
 
-        # 선택지 표시
         options_display = OnscreenText(
             text="",
             pos=(-1.2, 0.6),
@@ -89,7 +83,6 @@ if __name__ == "__main__":
             mayChange=True
         )
 
-        # 정답/오답 피드백 표시
         result_display = OnscreenText(
             text="",
             pos=(-1.2, 0.4),
@@ -99,10 +92,8 @@ if __name__ == "__main__":
             mayChange=True
         )
 
-        # 초기 옵션 설정
         set_new_options()
 
-        # 키 입력 바인딩
         base.accept('n', handle_input, ['n'])
         base.accept('m', handle_input, ['m'])
 
@@ -110,7 +101,6 @@ if __name__ == "__main__":
             previous_takeover = env.current_track_agent.expert_takeover
             o, r, tm, tc, info = env.step([0, 0])
 
-            # 피드백 상태 처리
             if showing_feedback and time.time() - last_feedback_time > 3:
                 current_problem, current_answer = generate_math_problem()
                 math_display.setText(current_problem)
@@ -119,7 +109,6 @@ if __name__ == "__main__":
                 waiting_for_answer = True
                 showing_feedback = False
 
-            # HUD 렌더링
             env.render(
                 text={
                     "Auto-Drive (Switch mode: T)": "on" if env.current_track_agent.expert_takeover else "off",
