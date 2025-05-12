@@ -23,35 +23,30 @@ ENABLE_AUDIO = False
 ENABLE_VISUAL = False
 ENABLE_HAPTIC = False
 
+# ENABLE_AUDIO = True
+# ENABLE_VISUAL = True
+ENABLE_HAPTIC = True
 
 tts_engine = pyttsx3.init()
-tts_engine.setProperty('rate', 150)  # 말하는 속도 조절
-
-# def speak_async(text):
-#     threading.Thread(target=lambda: tts_engine.say(text) or tts_engine.runAndWait(), daemon=True).start()
+tts_engine.setProperty('rate', 150)
 
 tts_queue = queue.Queue()
 
-def tts_worker():
+def tts_worker_loop():
     while True:
         text = tts_queue.get()
         if text is None:
-            break  # 종료 신호
-        try:
-            tts_engine.say(text)
-            tts_engine.runAndWait()
-        except RuntimeError as e:
-            print("TTS error:", e)
+            break
+        tts_engine.say(text)
+        tts_engine.runAndWait()
         tts_queue.task_done()
 
-# 백그라운드 TTS 쓰레드 시작
-tts_thread = threading.Thread(target=tts_worker, daemon=True)
+# Start the TTS thread
+tts_thread = threading.Thread(target=tts_worker_loop, daemon=True)
 tts_thread.start()
 
-# 안전한 음성 출력 함수
 def speak(text):
-    if not tts_queue.full():
-        tts_queue.put(text)
+    tts_queue.put(text)
 
 def get_condition_label():
     if ENABLE_AUDIO and not ENABLE_VISUAL and not ENABLE_HAPTIC:
@@ -170,6 +165,10 @@ class MetaDriveEnv(BaseEnv):
         self._is_currently_crash_vehicle = False
         self._is_currently_crash_object = False
 
+        self._last_out_of_road_audio_time = 0
+        self._last_crash_vehicle_audio_time = 0
+
+
     def _post_process_config(self, config):
         config = super(MetaDriveEnv, self)._post_process_config(config)
         if not config["norm_pixel"]:
@@ -187,6 +186,7 @@ class MetaDriveEnv(BaseEnv):
         if not config["is_multi_agent"]:
             target_v_config.update(config["agent_configs"][DEFAULT_AGENT])
             config["agent_configs"][DEFAULT_AGENT] = target_v_config
+        config["agent_configs"][DEFAULT_AGENT]["max_speed_km_h"] = 60
         return config
 
     def done_function(self, vehicle_id: str):
@@ -277,20 +277,26 @@ class MetaDriveEnv(BaseEnv):
         # Check if vehicle is out of road
         out_of_road = self._is_out_of_road(vehicle)
         
+        now = time.time()
+
+        if not hasattr(self, "_last_out_of_road_audio_time"):
+            self._last_out_of_road_audio_time = 0
+
         if out_of_road:
-            self.agent.off_road_count += 1
-            step_info["cost"] = self.config["out_of_road_cost"]
-            # Only speak and show visual alert if we just went out of road
             if not self._is_currently_out_of_road:
-                if ENABLE_AUDIO:
-                    speak("Out of road")
-                if ENABLE_VISUAL:
-                    self._add_out_of_road_visual_alert(vehicle)
+                self.agent.off_road_count += 1
+                step_info["cost"] = self.config["out_of_road_cost"]
                 self._is_currently_out_of_road = True
+
+            if ENABLE_AUDIO and (now - self._last_out_of_road_audio_time > 0.5):
+                speak("Out of road")
+                self._last_out_of_road_audio_time = now
+
+            if ENABLE_VISUAL:
+                self._add_out_of_road_visual_alert(vehicle)
         else:
-            # Reset the flag when back on road
             self._is_currently_out_of_road = False
-            lsw.stop_constant_force(0)
+
         #
         # if vehicle.crash_vehicle:
         #     step_info["cost"] = self.config["crash_vehicle_cost"]
@@ -301,18 +307,33 @@ class MetaDriveEnv(BaseEnv):
         #     step_info["cost"] = self.config["crash_object_cost"]
         #     speak("Crash with object")
 
+        if not hasattr(self, "_last_crash_vehicle_audio_time"):
+            self._last_crash_vehicle_audio_time = 0
+
         crash_vehicle = vehicle.crash_vehicle
-        if crash_vehicle and not self._is_currently_crash_vehicle:
-            self.agent.crash_vehicle_count += 1
-            if ENABLE_HAPTIC:
-                try:
-                    lsw.play_frontal_collision_force(0, 40)
-                    force_applied = True
-                except:
-                    pass
-            step_info["cost"] = self.config["crash_vehicle_cost"]
-            if ENABLE_AUDIO:
+
+        if crash_vehicle:
+            if not self._is_currently_crash_vehicle:
+                self.agent.crash_vehicle_count += 1
+                step_info["cost"] = self.config["crash_vehicle_cost"]
+                self._is_currently_crash_vehicle = True
+
+                if ENABLE_HAPTIC:
+                    try:
+                        lsw.play_frontal_collision_force(0, 30)
+                    except:
+                        pass
+
+                if ENABLE_VISUAL:
+                    self._add_crash_visual_alert()
+
+            if ENABLE_AUDIO and (time.time() - self._last_crash_vehicle_audio_time > 0.5):
                 speak("Crash with vehicle")
+                self._last_crash_vehicle_audio_time = time.time()
+        else:
+            self._is_currently_crash_vehicle = False
+
+
 
         try:
             lateral_pos = vehicle.lane.local_coordinates(vehicle.position)[1]
@@ -321,7 +342,7 @@ class MetaDriveEnv(BaseEnv):
         
         if ENABLE_HAPTIC:
             if out_of_road:
-                force = 50 if lateral_pos > 0 else -50
+                force = 25 if lateral_pos > 0 else -25
             else:
                 force = int(np.sign(steering_pos) * (5 + 40 * abs(steering_pos)))
             lsw.play_constant_force(0, force)
@@ -482,6 +503,24 @@ class MetaDriveEnv(BaseEnv):
         if hasattr(self, "_out_of_road_alert_node"):
             self._out_of_road_alert_node.hide()
         return task.done
+    
+    def _add_crash_visual_alert(self):
+        from direct.gui.OnscreenText import OnscreenText
+        if not hasattr(self, "_crash_text"):
+            self._crash_text = OnscreenText(
+                text="CRASH!",
+                fg=(1, 0, 0, 1),
+                pos=(0, 0.8),
+                scale=0.15,
+                mayChange=True
+            )
+            self._crash_text.hide()
+        self._crash_text.show()
+        self.engine.taskMgr.doMethodLater(
+            0.5, lambda task: (self._crash_text.hide(), task.done)[1],
+            "hide_crash_text"
+        )
+
 
 
 if __name__ == '__main__':
@@ -510,4 +549,4 @@ if __name__ == '__main__':
         except:
             pass
 
-__all__ = ["MetaDriveEnv", "get_condition_label"]
+__all__ = ["MetaDriveEnv", "get_condition_label", "speak"]

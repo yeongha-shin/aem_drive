@@ -13,12 +13,18 @@ from direct.showbase.ShowBase import ShowBase
 
 import logitech_steering_wheel as lsw
 
-from metadrive.envs.metadrive_env import get_condition_label
+from metadrive.envs.metadrive_env import get_condition_label, speak
+
+from direct.gui.OnscreenText import OnscreenText
+import numpy as np
+from panda3d.core import TextNode
+
 
 import pandas as pd
 import os
 
-experimenter_id = "001"  # ← Set this per participant
+
+experimenter_id = "002"  # ← Set this per participant
 log_file = "experiment_log.xlsx"
 
 CONDITION = get_condition_label()
@@ -73,12 +79,30 @@ if __name__ == "__main__":
             use_render=True,
             manual_control=False,         # disables MetaDrive internal control
             agent_policy=EnvInputPolicy,  # allows external control via env.step()
-            vehicle_config={"show_navi_mark": False}
+            vehicle_config={"show_navi_mark": False},
+            show_interface=False,
+            show_coordinates=False
         ))
 
 
     try:
         env.reset()
+
+        cam = env.engine.main_camera
+        cam.camera_dist = 0.5  # means exactly at the center of the car
+        cam.chase_camera_height = 1.5  # roughly driver's eye level
+        cam.camera_smooth = False  # disable smoothing for instant camera response
+
+        speed_display = OnscreenText(
+            text="Speed: 0 km/h",
+            pos=(-0.75, -0.95),               # (X, Y) position on screen (bottom-left)
+            scale=0.07,                    # size of the font
+            fg=(1, 1, 1, 1),               # white color
+            align=TextNode.ARight,        # align text to the right
+            mayChange=True                # allows updates
+        )
+
+
         env.agent.crash_vehicle_count = 0
         env.agent.off_road_count = 0
         start_time = time.time()
@@ -159,13 +183,17 @@ if __name__ == "__main__":
 
             o, r, tm, tc, info = env.step(action)
 
+            speed = np.linalg.norm(env.agent.velocity) * 3.6  # m/s → km/h
+            speed_display.setText(f"Speed: {int(speed)} km/h")
+
+
             if info.get("arrive_dest", False):
-                print(f"Arrived! Total penalty: {env.episode_cost}")
+                #print(f"Arrived! Total penalty: {env.episode_cost}")
                 break  # exit simulation
 
 
 
-            if showing_feedback and time.time() - last_feedback_time > 3:
+            if showing_feedback and time.time() - last_feedback_time > 0.5:
                 current_problem, current_answer = generate_math_problem()
                 math_display.setText(current_problem)
                 result_display.setText("")
@@ -218,5 +246,7 @@ if __name__ == "__main__":
 
         env.close()
         lsw.shutdown()
+ 
+
 
 
