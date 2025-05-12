@@ -17,6 +17,11 @@ import pyttsx3
 import threading
 import queue
 import time
+import logitech_steering_wheel as lsw
+
+ENABLE_AUDIO = False
+ENABLE_VISUAL = False
+ENABLE_HAPTIC = False
 
 
 tts_engine = pyttsx3.init()
@@ -48,19 +53,33 @@ def speak(text):
     if not tts_queue.full():
         tts_queue.put(text)
 
+def get_condition_label():
+    if ENABLE_AUDIO and not ENABLE_VISUAL and not ENABLE_HAPTIC:
+        return "Audio Only"
+    elif ENABLE_VISUAL and not ENABLE_AUDIO and not ENABLE_HAPTIC:
+        return "Visual Only"
+    elif ENABLE_HAPTIC and not ENABLE_AUDIO and not ENABLE_VISUAL:
+        return "Haptic Only"
+    elif not ENABLE_AUDIO and not ENABLE_VISUAL and not ENABLE_HAPTIC:
+        return "No Feedback"
+    else:
+        return "Mixed Feedback"
+
+
 METADRIVE_DEFAULT_CONFIG = dict(
     # ===== Generalization =====
     start_seed=0,
     num_scenarios=1,
 
     # ===== PG Map Config =====
-    map=3,  # int or string: an easy way to fill map_config
+    map=None,  # int or string: an easy way to fill map_config
     block_dist_config=PGBlockDistConfig,
+
     random_lane_width=False,
     random_lane_num=False,
-    map_config={
+    map_config = {
         BaseMap.GENERATE_TYPE: MapGenerateMethod.BIG_BLOCK_NUM,
-        BaseMap.GENERATE_CONFIG: None,  # it can be a file path / block num / block ID sequence
+        BaseMap.GENERATE_CONFIG: 10,
         BaseMap.LANE_WIDTH: 3.5,
         BaseMap.LANE_NUM: 3,
         "exit_length": 50,
@@ -247,20 +266,31 @@ class MetaDriveEnv(BaseEnv):
         vehicle = self.agents[vehicle_id]
         step_info = dict()
         step_info["cost"] = 0
+
+        steering_pos = lsw.get_state(0).lX / 32767  # range -1 to 1
+        centering_force = int(steering_pos * 40)  # or tweak the gain
+        force_applied = False
+
         
+        self._last_out_of_road_force_time = getattr(self, "_last_out_of_road_force_time", 0)
+
         # Check if vehicle is out of road
         out_of_road = self._is_out_of_road(vehicle)
         
         if out_of_road:
+            self.agent.off_road_count += 1
             step_info["cost"] = self.config["out_of_road_cost"]
             # Only speak and show visual alert if we just went out of road
             if not self._is_currently_out_of_road:
-                speak("Out of road")
-                self._add_out_of_road_visual_alert(vehicle)
+                if ENABLE_AUDIO:
+                    speak("Out of road")
+                if ENABLE_VISUAL:
+                    self._add_out_of_road_visual_alert(vehicle)
                 self._is_currently_out_of_road = True
         else:
             # Reset the flag when back on road
             self._is_currently_out_of_road = False
+            lsw.stop_constant_force(0)
         #
         # if vehicle.crash_vehicle:
         #     step_info["cost"] = self.config["crash_vehicle_cost"]
@@ -273,15 +303,38 @@ class MetaDriveEnv(BaseEnv):
 
         crash_vehicle = vehicle.crash_vehicle
         if crash_vehicle and not self._is_currently_crash_vehicle:
+            self.agent.crash_vehicle_count += 1
+            if ENABLE_HAPTIC:
+                try:
+                    lsw.play_frontal_collision_force(0, 40)
+                    force_applied = True
+                except:
+                    pass
             step_info["cost"] = self.config["crash_vehicle_cost"]
-            speak("Crash with vehicle")
-        self._is_currently_crash_vehicle = crash_vehicle
+            if ENABLE_AUDIO:
+                speak("Crash with vehicle")
+
+        try:
+            lateral_pos = vehicle.lane.local_coordinates(vehicle.position)[1]
+        except:
+            lateral_pos = 0
+        
+        if ENABLE_HAPTIC:
+            if out_of_road:
+                force = 50 if lateral_pos > 0 else -50
+            else:
+                force = int(np.sign(steering_pos) * (5 + 40 * abs(steering_pos)))
+            lsw.play_constant_force(0, force)
+
+
+
 
         # === Crash with object ===
         crash_object = vehicle.crash_object
         if crash_object and not self._is_currently_crash_object:
             step_info["cost"] = self.config["crash_object_cost"]
-            speak("Crash with object")
+            if ENABLE_AUDIO:
+                speak("Crash with object")
         self._is_currently_crash_object = crash_object
 
         return step_info['cost'], step_info
@@ -370,6 +423,12 @@ class MetaDriveEnv(BaseEnv):
         if abs(self.config["accident_prob"] - 0) > 1e-2:
             self.engine.register_manager("object_manager", TrafficObjectManager())
 
+        try:
+            import logitech_steering_wheel as lsw
+            lsw.initialize_with_window(True, int(self.engine.win.get_window_handle().get_int_handle()))
+        except Exception as e:
+            print(f"[WARN] Failed to init Logitech wheel: {e}")
+
     def _add_out_of_road_visual_alert(self, vehicle):
         """Add a red light visual indicator when vehicle goes out of road"""
         if not hasattr(self, "_out_of_road_alert_node"):
@@ -445,3 +504,10 @@ if __name__ == '__main__':
                 _act(env, [x, y])
     finally:
         env.close()
+        try:
+            lsw.stop_constant_force(0)
+            lsw.shutdown()
+        except:
+            pass
+
+__all__ = ["MetaDriveEnv", "get_condition_label"]

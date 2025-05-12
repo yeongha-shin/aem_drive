@@ -21,16 +21,16 @@ class PGBlockDistConfig:
 
     BLOCK_TYPE_DISTRIBUTION_V2 = {
         # 0.3 for curves
-        "Curve": 0.3,
+        "Curve": 0.7,
         # 0.3 for straight
-        "Straight": 0.1,
-        "InRampOnStraight": 0.1,
-        "OutRampOnStraight": 0.1,
+        "Straight": 0.3,
+        "InRampOnStraight": 0.0,
+        "OutRampOnStraight": 0.0,
         # 0.3 for intersection
-        "StdInterSection": 0.15,
-        "StdTInterSection": 0.15,
+        "StdInterSection": 0.0,
+        "StdTInterSection": 0.0,
         # 0.1 for roundabout
-        "Roundabout": 0.1,
+        "Roundabout": 0.0,
         "InFork": 0.00,
         "OutFork": 0.00,
         "Merge": 0.00,

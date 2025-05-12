@@ -25,7 +25,7 @@ class BigGenerateMethod:
 
 
 class BIG:
-    MAX_TRIAL = 5
+    MAX_TRIAL = 50
 
     def __init__(
         self,
