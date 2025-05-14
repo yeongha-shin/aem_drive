@@ -4,7 +4,8 @@ import random
 import time
 
 from metadrive.constants import HELP_MESSAGE
-from metadrive.envs.safe_metadrive_env import SafeMetaDriveEnv as ComplexEnv
+from metadrive.envs.metadrive_env import MetaDriveEnv as ComplexEnv
+
 
 
 from direct.gui.OnscreenText import OnscreenText
@@ -22,6 +23,8 @@ from panda3d.core import TextNode
 
 import pandas as pd
 import os
+
+from direct.showbase import ShowBaseGlobal
 
 
 experimenter_id = "002"  # ← Set this per participant
@@ -88,6 +91,16 @@ if __name__ == "__main__":
     try:
         env.reset()
 
+        keys = ShowBaseGlobal.base.mouseWatcherNode
+
+        try:
+            lsw.initialize_with_window(True, int(env.engine.win.get_window_handle().get_int_handle()))
+            USE_WHEEL = lsw.is_connected(0)
+        except:
+            USE_WHEEL = False
+        print("Logitech wheel detected:", USE_WHEEL)
+
+
         cam = env.engine.main_camera
         cam.camera_dist = 0.5  # means exactly at the center of the car
         cam.chase_camera_height = 1.5  # roughly driver's eye level
@@ -109,7 +122,6 @@ if __name__ == "__main__":
         math_score = 0
         #print(HELP_MESSAGE)
         env.agent.expert_takeover = False
-        lsw.initialize_with_window(True, int(env.engine.win.get_window_handle().get_int_handle()))
 
 
         current_problem, current_answer = generate_math_problem()
@@ -156,30 +168,53 @@ if __name__ == "__main__":
         while True:
             previous_takeover = env.current_track_agent.expert_takeover
 
-            lsw.update()
-            state = lsw.get_state(0)
+            if USE_WHEEL:
+                lsw.update()
+                state = lsw.get_state(0)
+                lsw.play_damper_force(0, 80)
 
-            lsw.play_damper_force(0, 80)  # value: 0–100
+                # Math input from wheel buttons
+                if waiting_for_answer:
+                    if state.rgbButtons[5]:
+                        handle_input('n')
+                    elif state.rgbButtons[4]:
+                        handle_input('m')
 
-            # Check wheel buttons manually
-            if waiting_for_answer:
-                if state.rgbButtons[5]:
-                    handle_input('n')  # button 4 = N
-                elif state.rgbButtons[4]:
-                    handle_input('m')  # button 5 = M
+                steering_raw = state.lX
+                throttle_raw = state.lY
+                brake_raw = state.lRz
 
-            steering_raw = state.lX
-            throttle_raw = state.lY
-            brake_raw = state.lRz
+                steering = -max(min(steering_raw / 32767, 1.0), -1.0)
+                throttle = max(min((32767 - throttle_raw) / 65534, 1.0), 0.0)
+                brake = max(min((32767 - brake_raw) / 65534, 1.0), 0.0)
 
-            steering = -max(min(steering_raw / 32767, 1.0), -1.0)
-            throttle = max(min((32767 - throttle_raw) / 65534, 1.0), 0.0)
-            brake = max(min((32767 - brake_raw) / 65534, 1.0), 0.0)
+                throttle_final = throttle - brake
+                throttle_final = max(min(throttle_final, 1.0), -1.0)
 
-            throttle_final = throttle - brake
-            throttle_final = max(min(throttle_final, 1.0), -1.0)
+                action = [steering, throttle_final]
 
-            action = [steering, throttle_final]
+            else:
+                steering = 0.0
+                throttle = 0.0
+
+                if keys.is_button_down("a"):
+                    steering += 1.0
+                if keys.is_button_down("d"):
+                    steering -= 1.0
+                if keys.is_button_down("w"):
+                    throttle += 1.0
+                if keys.is_button_down("s"):
+                    throttle -= 1.0
+
+                # Math input from keyboard
+                if waiting_for_answer:
+                    if keys.is_button_down("n"):
+                        handle_input("n")
+                    elif keys.is_button_down("m"):
+                        handle_input("m")
+
+                action = [steering, throttle]
+
 
             o, r, tm, tc, info = env.step(action)
 

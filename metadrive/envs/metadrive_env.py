@@ -24,8 +24,8 @@ ENABLE_VISUAL = False
 ENABLE_HAPTIC = False
 
 # ENABLE_AUDIO = True
-# ENABLE_VISUAL = True
-ENABLE_HAPTIC = True
+ENABLE_VISUAL = True
+# ENABLE_HAPTIC = True
 
 tts_engine = pyttsx3.init()
 tts_engine.setProperty('rate', 150)
@@ -74,21 +74,22 @@ METADRIVE_DEFAULT_CONFIG = dict(
     random_lane_num=False,
     map_config = {
         BaseMap.GENERATE_TYPE: MapGenerateMethod.BIG_BLOCK_NUM,
-        BaseMap.GENERATE_CONFIG: 10,
-        BaseMap.LANE_WIDTH: 3.5,
-        BaseMap.LANE_NUM: 3,
+        BaseMap.GENERATE_CONFIG: 12,
+        BaseMap.LANE_WIDTH: 6,
+        BaseMap.LANE_NUM: 1,
         "exit_length": 50,
         "start_position": [0, 0],
     },
     store_map=True,
 
     # ===== Traffic =====
-    traffic_density=0.1,
-    need_inverse_traffic=False,
-    traffic_mode=TrafficMode.Trigger,  # "Respawn", "Trigger"
-    random_traffic=False,  # Traffic is randomized at default.
-    # this will update the vehicle_config and set to traffic
-    traffic_vehicle_config=dict(
+    traffic_density=0.0,                 # No other cars
+    need_inverse_traffic=False,          # No opposite-direction lanes
+    traffic_mode=TrafficMode.Trigger,   # Mode doesn't matter here since there's no traffic
+    random_traffic=False,               # Keep traffic fixed (but it's empty anyway)
+    static_traffic_object=False,        # No static objects
+    accident_prob=0.0,                  # No random accidents or obstacles
+    traffic_vehicle_config=dict(        # Traffic vehicle settings (not used, but here for completeness)
         show_navi_mark=False,
         show_dest_mark=False,
         enable_reverse=False,
@@ -97,9 +98,10 @@ METADRIVE_DEFAULT_CONFIG = dict(
         show_side_detector=False,
     ),
 
+
     # ===== Object =====
-    accident_prob=0.,  # accident may happen on each block with this probability, except multi-exits block
-    static_traffic_object=True,  # object won't react to any collisions
+    #accident_prob=0.0,  # accident may happen on each block with this probability, except multi-exits block
+    #static_traffic_object=False,  # object won't react to any collisions
 
     # ===== Others =====
     use_AI_protector=False,
@@ -267,8 +269,6 @@ class MetaDriveEnv(BaseEnv):
         step_info = dict()
         step_info["cost"] = 0
 
-        steering_pos = lsw.get_state(0).lX / 32767  # range -1 to 1
-        centering_force = int(steering_pos * 40)  # or tweak the gain
         force_applied = False
 
         
@@ -320,7 +320,11 @@ class MetaDriveEnv(BaseEnv):
 
                 if ENABLE_HAPTIC:
                     try:
-                        lsw.play_frontal_collision_force(0, 30)
+                        if lsw.is_connected(0):
+                            try:
+                                lsw.play_frontal_collision_force(0, 30)
+                            except:
+                                pass
                     except:
                         pass
 
@@ -344,8 +348,13 @@ class MetaDriveEnv(BaseEnv):
             if out_of_road:
                 force = 25 if lateral_pos > 0 else -25
             else:
-                force = int(np.sign(steering_pos) * (5 + 40 * abs(steering_pos)))
-            lsw.play_constant_force(0, force)
+                force = 0
+            if lsw.is_connected(0):
+                try:
+                    lsw.play_constant_force(0, force)
+                except:
+                    pass
+
 
 
 
@@ -441,8 +450,8 @@ class MetaDriveEnv(BaseEnv):
         from metadrive.manager.object_manager import TrafficObjectManager
         self.engine.register_manager("map_manager", PGMapManager())
         self.engine.register_manager("traffic_manager", PGTrafficManager())
-        if abs(self.config["accident_prob"] - 0) > 1e-2:
-            self.engine.register_manager("object_manager", TrafficObjectManager())
+        # if abs(self.config["accident_prob"] - 0) > 1e-2:
+            #self.engine.register_manager("object_manager", TrafficObjectManager())
 
         try:
             import logitech_steering_wheel as lsw
@@ -544,8 +553,12 @@ if __name__ == '__main__':
     finally:
         env.close()
         try:
-            lsw.stop_constant_force(0)
-            lsw.shutdown()
+            if lsw.is_connected(0):
+                try:
+                    lsw.stop_constant_force(0)
+                    lsw.shutdown()
+                except:
+                    pass
         except:
             pass
 
