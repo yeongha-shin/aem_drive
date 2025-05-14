@@ -30,6 +30,8 @@ from direct.showbase import ShowBaseGlobal
 experimenter_id = "002"  # ← Set this per participant
 log_file = "experiment_log.xlsx"
 
+OFFROAD_WARNING_MS = 500  # milliseconds
+
 CONDITION = get_condition_label()
 
 def generate_math_problem():
@@ -100,11 +102,12 @@ if __name__ == "__main__":
             USE_WHEEL = False
         print("Logitech wheel detected:", USE_WHEEL)
 
-
+        '''
         cam = env.engine.main_camera
         cam.camera_dist = 0.5  # means exactly at the center of the car
         cam.chase_camera_height = 1.5  # roughly driver's eye level
         cam.camera_smooth = False  # disable smoothing for instant camera response
+        '''
 
         speed_display = OnscreenText(
             text="Speed: 0 km/h",
@@ -114,6 +117,25 @@ if __name__ == "__main__":
             align=TextNode.ARight,        # align text to the right
             mayChange=True                # allows updates
         )
+
+        debug_display = OnscreenText(
+            text="",
+            pos=(0.5, -0.5),
+            scale=0.05,
+            fg=(1, 1, 1, 1),
+            align=TextNode.ALeft,
+            mayChange=True
+        )
+
+        offroad_warning = OnscreenText(
+            text="WARNING: Approaching road edge!",
+            pos=(0, 0.6),
+            scale=0.1,
+            fg=(1, 0.3, 0.3, 1),
+            align=TextNode.ACenter,
+            mayChange=True
+        )
+        offroad_warning.hide()
 
 
         env.agent.crash_vehicle_count = 0
@@ -144,7 +166,7 @@ if __name__ == "__main__":
 
         options_display = OnscreenText(
             text="",
-            pos=(-1.2, 0.6),
+            pos=(-1.2, 0.5),
             scale=0.1,
             fg=(1, 1, 1, 1),
             align=TextNode.ALeft,
@@ -217,6 +239,63 @@ if __name__ == "__main__":
 
 
             o, r, tm, tc, info = env.step(action)
+
+            try:
+                pos = env.agent.position
+                long, lat = env.agent.lane.local_coordinates(pos)
+                heading = env.agent.lane.heading_theta_at(long)
+                lane_width = env.agent.navigation.get_current_lane_width()
+
+                # Edge distances (robust)
+                left_edge = -lane_width / 2
+                right_edge = lane_width / 2
+                left_dist = lat - left_edge
+                right_dist = right_edge - lat
+                min_dist_to_edge = min(left_dist, right_dist)
+                is_off_road = min_dist_to_edge < 0.9
+
+                velocity = env.agent.velocity
+                lane_normal = np.array([-np.sin(heading), np.cos(heading)])
+                v_lateral = np.dot(velocity, lane_normal)
+
+                if abs(v_lateral) < 1e-2:
+                    t_offroad = None
+                    side = None
+                elif v_lateral > 0:
+                    t_offroad = (left_dist - 0.9) / v_lateral if left_dist > 0.9 else 0
+                    side = "left"
+                else:
+                    t_offroad = (right_dist - 0.9) / abs(v_lateral) if right_dist > 0.9 else 0
+                    side = "right"
+
+            except:
+                long = lat = heading = lane_width = left_dist = right_dist = min_dist_to_edge = v_lateral = 0
+                t_offroad = None
+                side = None
+                is_off_road = False
+
+            if t_offroad is None:
+                t_display = "∞"
+            elif t_offroad <= 0:
+                t_display = "0.00s (now)"
+            else:
+                t_display = f"{t_offroad:.2f}s ({side})"
+
+            debug_display.setFg((1, 0, 0, 1) if is_off_road else (1, 1, 1, 1))
+            debug_display.setText(
+                f"Pos: ({pos[0]:.1f}, {pos[1]:.1f})\n"
+                f"Lane: long={long:.1f}, lat={lat:.1f}\n"
+                f"L dist: {left_dist:.2f}  R dist: {right_dist:.2f}  (min={min_dist_to_edge:.2f})\n"
+                f"Heading: {np.degrees(heading):.1f}°\n"
+                f"v_lat: {v_lateral:.2f} m/s   t_off: {t_display}"
+            )
+
+            if t_offroad is not None and 0 < t_offroad * 1000 < OFFROAD_WARNING_MS:
+                offroad_warning.show()
+            else:
+                offroad_warning.hide()
+
+
 
             speed = np.linalg.norm(env.agent.velocity) * 3.6  # m/s → km/h
             speed_display.setText(f"Speed: {int(speed)} km/h")

@@ -24,7 +24,7 @@ ENABLE_VISUAL = False
 ENABLE_HAPTIC = False
 
 # ENABLE_AUDIO = True
-ENABLE_VISUAL = True
+# ENABLE_VISUAL = True
 # ENABLE_HAPTIC = True
 
 tts_engine = pyttsx3.init()
@@ -74,7 +74,7 @@ METADRIVE_DEFAULT_CONFIG = dict(
     random_lane_num=False,
     map_config = {
         BaseMap.GENERATE_TYPE: MapGenerateMethod.BIG_BLOCK_NUM,
-        BaseMap.GENERATE_CONFIG: 12,
+        BaseMap.GENERATE_CONFIG: 4,
         BaseMap.LANE_WIDTH: 6,
         BaseMap.LANE_NUM: 1,
         "exit_length": 50,
@@ -268,8 +268,6 @@ class MetaDriveEnv(BaseEnv):
         vehicle = self.agents[vehicle_id]
         step_info = dict()
         step_info["cost"] = 0
-
-        force_applied = False
 
         
         self._last_out_of_road_force_time = getattr(self, "_last_out_of_road_force_time", 0)
