@@ -75,7 +75,7 @@ METADRIVE_DEFAULT_CONFIG = dict(
     map_config = {
         BaseMap.GENERATE_TYPE: MapGenerateMethod.BIG_BLOCK_NUM,
         BaseMap.GENERATE_CONFIG: 4,
-        BaseMap.LANE_WIDTH: 6,
+        BaseMap.LANE_WIDTH: 8,
         BaseMap.LANE_NUM: 1,
         "exit_length": 50,
         "start_position": [0, 0],
