@@ -31,6 +31,7 @@ import sys
 import threading
 import subprocess
 
+
 def _beep_windows():
     import winsound
     winsound.Beep(1000, 200)
