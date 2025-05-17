@@ -1,5 +1,3 @@
-#!/usr/bin/env python
-
 import logging
 import random
 import time
@@ -17,6 +15,7 @@ from direct.gui.OnscreenText import OnscreenText
 from panda3d.core import TextNode, LineSegs, NodePath
 from direct.showbase import ShowBaseGlobal
 
+# Wheel support
 import logitech_steering_wheel as lsw
 
 # Globals for prediction line and experiment tracking
@@ -28,6 +27,10 @@ log_file = "experiment_log.xlsx"
 total_time = 0.8           # seconds ahead to predict trajectory
 time_limit = 5             # seconds to answer math problem
 CONDITION = get_condition_label()
+
+# Toggleable predictive feedback modes
+ENABLE_PREDICTIVE_AUDIO = True
+ENABLE_PREDICTIVE_VISUAL = True
 
 
 def draw_prediction_path(points):
@@ -126,17 +129,19 @@ if __name__ == "__main__":
             handle = int(env.engine.win.get_window_handle().get_int_handle())
             lsw.initialize_with_window(True, handle)
             USE_WHEEL = lsw.is_connected(0)
-        except:
+        except Exception:
             USE_WHEEL = False
         print("Logitech wheel detected:", USE_WHEEL)
 
+        # persistent flag for audio alert
+        env._predictive_alert_audio_on = False
+
         # on-screen displays
         speed_display = OnscreenText(text="Speed: 0 km/h", pos=(-0.75, -0.95),
-                                     scale=0.07, fg=(1,1,1,1), align=TextNode.ARight,
+                                     scale=0.07, fg=(1, 1, 1, 1), align=TextNode.ARight,
                                      mayChange=True)
-        offroad_warning = OnscreenText(text="WARNING: Approaching road edge!",
-                                       pos=(0, 0.6), scale=0.1,
-                                       fg=(1,0.3,0.3,1), align=TextNode.ACenter,
+        offroad_warning = OnscreenText(text="WARNING: Approaching road edge!", pos=(0, 0.6), scale=0.1,
+                                       fg=(1, 0.3, 0.3, 1), align=TextNode.ACenter,
                                        mayChange=True)
         offroad_warning.hide()
 
@@ -156,13 +161,13 @@ if __name__ == "__main__":
         N_value = M_value = None
 
         math_display = OnscreenText(text=current_problem, pos=(-1.2, 0.8),
-                                    scale=0.15, fg=(1,1,0,1),
+                                    scale=0.15, fg=(1, 1, 0, 1),
                                     align=TextNode.ALeft, mayChange=True)
         options_display = OnscreenText(text="", pos=(-1.2, 0.5),
-                                       scale=0.1, fg=(1,1,1,1),
+                                       scale=0.1, fg=(1, 1, 1, 1),
                                        align=TextNode.ALeft, mayChange=True)
         result_display = OnscreenText(text="", pos=(-1.2, 0.4),
-                                      scale=0.1, fg=(0,1,0,1),
+                                      scale=0.1, fg=(0, 1, 0, 1),
                                       align=TextNode.ALeft, mayChange=True)
         set_new_options()
 
@@ -188,14 +193,20 @@ if __name__ == "__main__":
                 action = [steering, max(min(throttle - brake, 1.0), -1.0)]
             else:
                 steering = throttle = 0.0
-                if keys.is_button_down("a"): steering += 1.0
-                if keys.is_button_down("d"): steering -= 1.0
-                if keys.is_button_down("w"): throttle += 1.0
-                if keys.is_button_down("s"): throttle -= 1.0
+                if keys.is_button_down("a"):
+                    steering += 1.0
+                if keys.is_button_down("d"):
+                    steering -= 1.0
+                if keys.is_button_down("w"):
+                    throttle += 1.0
+                if keys.is_button_down("s"):
+                    throttle -= 1.0
 
                 if waiting_for_answer:
-                    if keys.is_button_down("n"): handle_input("n")
-                    elif keys.is_button_down("m"): handle_input("m")
+                    if keys.is_button_down("n"):
+                        handle_input("n")
+                    elif keys.is_button_down("m"):
+                        handle_input("m")
 
                 action = [steering, throttle]
 
@@ -209,7 +220,7 @@ if __name__ == "__main__":
 
             if np.hypot(vx, vy) > 1e-3:
                 vel_angle = np.arctan2(vy, vx)
-                beta = (vel_angle - heading + np.pi) % (2*np.pi) - np.pi
+                beta = (vel_angle - heading + np.pi) % (2 * np.pi) - np.pi
             else:
                 beta = 0.0
 
@@ -222,7 +233,45 @@ if __name__ == "__main__":
                 traj.append((st["x"], st["y"]))
             draw_prediction_path(traj)
 
-            # offroad warning logic
+            # === Predictive alert based on future trajectory ===
+            try:
+                warn_predicted = False
+                for px, py in traj:
+                    long, lat = env.agent.lane.local_coordinates((px, py))
+                    w = env.agent.navigation.get_current_lane_width() / 2
+                    if min(lat + w, w - lat) < 0.9:
+                        warn_predicted = True
+                        break
+
+                # Predictive visual alert
+                if ENABLE_PREDICTIVE_VISUAL:
+                    if warn_predicted:
+                        if not hasattr(env, "_predictive_alert_node"):
+                            from direct.gui.DirectFrame import DirectFrame
+                            env._predictive_alert_node = DirectFrame(
+                                frameColor=(1, 0, 0, 0.3),
+                                frameSize=(-1, 1, -1, 1),
+                                parent=env.engine.aspect2d
+                            )
+                        env._predictive_alert_node.show()
+                    else:
+                        if hasattr(env, "_predictive_alert_node"):
+                            env._predictive_alert_node.hide()
+
+                # Predictive audio alert
+                if ENABLE_PREDICTIVE_AUDIO:
+                    now = time.time()
+                    if warn_predicted and not env._predictive_alert_audio_on:
+                        speak("Warning!")
+                        env._predictive_alert_audio_on = True
+                        env._last_predictive_alert_time = now
+                    elif not warn_predicted:
+                        env._predictive_alert_audio_on = False
+            except Exception:
+                if hasattr(env, "_predictive_alert_node"):
+                    env._predictive_alert_node.hide()
+
+            # offroad warning logic (legacy visual)
             try:
                 warn = False
                 for px, py in traj:
@@ -231,14 +280,14 @@ if __name__ == "__main__":
                     if min(lat + w, w - lat) < 0.9:
                         warn = True
                         break
-                (offroad_warning.show() if warn else offroad_warning.hide())
-            except:
+                offroad_warning.show() if warn else offroad_warning.hide()
+            except Exception:
                 offroad_warning.hide()
 
             # math timeout handling
             if waiting_for_answer and time.time() - problem_start_time > time_limit:
                 result_display.setText("Time out!")
-                result_display.setFg((1,0.5,0,1))
+                result_display.setFg((1, 0.5, 0, 1))
                 last_feedback_time = time.time()
                 waiting_for_answer = False
                 showing_feedback = True

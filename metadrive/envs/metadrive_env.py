@@ -23,6 +23,8 @@ ENABLE_AUDIO = False
 ENABLE_VISUAL = False
 ENABLE_HAPTIC = False
 
+ENABLE_PREDICTIVE_AUDIO = True
+ENABLE_PREDICTIVE_VISUAL = True
 # ENABLE_AUDIO = True
 # ENABLE_VISUAL = True
 # ENABLE_HAPTIC = True
@@ -57,6 +59,13 @@ def get_condition_label():
         return "Haptic Only"
     elif not ENABLE_AUDIO and not ENABLE_VISUAL and not ENABLE_HAPTIC:
         return "No Feedback"
+    elif ENABLE_PREDICTIVE_AUDIO or ENABLE_PREDICTIVE_VISUAL:
+        modes = []
+        if ENABLE_PREDICTIVE_AUDIO:
+            modes.append("Predictive Audio")
+        if ENABLE_PREDICTIVE_VISUAL:
+            modes.append("Predictive Visual")
+        return " & ".join(modes)
     else:
         return "Mixed Feedback"
 
