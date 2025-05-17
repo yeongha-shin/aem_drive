@@ -1,63 +1,93 @@
-#!/usr/bin/env python
 import logging
 import random
 import time
-
-from metadrive.constants import HELP_MESSAGE
-from metadrive.envs.metadrive_env import MetaDriveEnv as ComplexEnv
-
-
-
-from direct.gui.OnscreenText import OnscreenText
-from panda3d.core import TextNode
-from direct.showbase.ShowBase import ShowBase
-
-import logitech_steering_wheel as lsw
-
-from metadrive.envs.metadrive_env import get_condition_label
-
-from direct.gui.OnscreenText import OnscreenText
-import numpy as np
-from panda3d.core import TextNode
-
-
-import pandas as pd
 import os
 
+import numpy as np
+import pandas as pd
+
+from metadrive.constants import HELP_MESSAGE
+from metadrive.envs.metadrive_env import MetaDriveEnv as ComplexEnv, get_condition_label, speak
+from metadrive.component.vehicle_model.bicycle_model import BicycleModel
+from metadrive.policy.env_input_policy import EnvInputPolicy
+
+from direct.gui.OnscreenText import OnscreenText
+from panda3d.core import TextNode, LineSegs, NodePath
 from direct.showbase import ShowBaseGlobal
 
+# Wheel support
+import logitech_steering_wheel as lsw
 
-experimenter_id = "002"  # ← Set this per participant
+# Globals for prediction line and experiment tracking
+prediction_path_node = None
+marker_nodes = []
+
+experimenter_id = "002"
 log_file = "experiment_log.xlsx"
-
-OFFROAD_WARNING_MS = 500  # milliseconds
-
+total_time = 0.8           # seconds ahead to predict trajectory
+time_limit = 5             # seconds to answer math problem
 CONDITION = get_condition_label()
 
+# Toggleable predictive feedback modes
+ENABLE_PREDICTIVE_AUDIO = True
+ENABLE_PREDICTIVE_VISUAL = True
+
+
+def draw_prediction_path(points):
+    """Draw colored trajectory line based on predicted points."""
+    global prediction_path_node
+
+    # remove previous trajectory if present
+    if prediction_path_node:
+        prediction_path_node.removeNode()
+
+    segs = LineSegs()
+    segs.setThickness(4.0)
+
+    n = len(points)
+    for i, (x, y) in enumerate(points):
+        t = i / max(n - 1, 1)  # normalized position along path
+        segs.setColor(1 - t, t, 0.0, 1.0)
+        segs.drawTo(x, y, 0.1)
+
+    # create and attach new line node
+    prediction_path_node = NodePath(segs.create())
+    prediction_path_node.setLightOff()
+    prediction_path_node.setShaderOff()
+    prediction_path_node.reparentTo(render)
+
+
 def generate_math_problem():
-    a = random.randint(1, 9)
-    b = random.randint(1, 9)
-    op = random.choice(["+", "-", "*"])
+    """Create a simple addition or subtraction problem."""
+    a = random.randint(10, 99)
+    b = random.randint(10, 99)
+    op = random.choice(["+", "-"])
     result = eval(f"{a}{op}{b}")
-    problem = f"{a} {op} {b} = ?"
-    return problem, result
+    return f"{a} {op} {b} = ?", result
+
 
 def set_new_options():
-    global N_value, M_value, current_answer
+    """Pick two options (one correct, one near-miss) and reset timer."""
+    global N_value, M_value, current_answer, problem_start_time
+
     correct = current_answer
     wrong = correct
     while wrong == correct:
         wrong = random.randint(correct - 3, correct + 3)
+
     if random.random() < 0.5:
         N_value, M_value = correct, wrong
     else:
         N_value, M_value = wrong, correct
+
     options_display.setText(f"L: {N_value}    R: {M_value}")
+    problem_start_time = time.time()
+
 
 def handle_input(key):
+    """Check user input (n or m) against the correct answer and give feedback."""
     global waiting_for_answer, showing_feedback, last_feedback_time
-    global feedback_text, current_problem, current_answer
-    global math_score
+    global feedback_text, current_answer, math_score
 
     if not waiting_for_answer:
         return
@@ -77,148 +107,92 @@ def handle_input(key):
     waiting_for_answer = False
     showing_feedback = True
 
+
 if __name__ == "__main__":
-    from metadrive.policy.env_input_policy import EnvInputPolicy
-
-    env = ComplexEnv(dict(
-            use_render=True,
-            manual_control=False,         # disables MetaDrive internal control
-            agent_policy=EnvInputPolicy,  # allows external control via env.step()
-            vehicle_config={"show_navi_mark": False},
-            show_interface=False,
-            show_coordinates=False
-        ))
-
+    # initialize environment and model
+    env = ComplexEnv({
+        "use_render": True,
+        "manual_control": False,
+        "agent_policy": EnvInputPolicy,
+        "vehicle_config": {"show_navi_mark": False},
+        "show_interface": False,
+        "show_coordinates": False
+    })
+    bike_model = BicycleModel()
 
     try:
         env.reset()
-
         keys = ShowBaseGlobal.base.mouseWatcherNode
 
+        # attempt wheel initialization
         try:
-            lsw.initialize_with_window(True, int(env.engine.win.get_window_handle().get_int_handle()))
+            handle = int(env.engine.win.get_window_handle().get_int_handle())
+            lsw.initialize_with_window(True, handle)
             USE_WHEEL = lsw.is_connected(0)
-        except:
+        except Exception:
             USE_WHEEL = False
         print("Logitech wheel detected:", USE_WHEEL)
 
-        '''
-        cam = env.engine.main_camera
-        cam.camera_dist = 0.5  # means exactly at the center of the car
-        cam.chase_camera_height = 1.5  # roughly driver's eye level
-        cam.camera_smooth = False  # disable smoothing for instant camera response
-        '''
+        # persistent flag for audio alert
+        env._predictive_alert_audio_on = False
 
-        speed_display = OnscreenText(
-            text="Speed: 0 km/h",
-            pos=(-0.75, -0.95),               # (X, Y) position on screen (bottom-left)
-            scale=0.07,                    # size of the font
-            fg=(1, 1, 1, 1),               # white color
-            align=TextNode.ARight,        # align text to the right
-            mayChange=True                # allows updates
-        )
-
-        debug_display = OnscreenText(
-            text="",
-            pos=(0.5, -0.5),
-            scale=0.05,
-            fg=(1, 1, 1, 1),
-            align=TextNode.ALeft,
-            mayChange=True
-        )
-
-        offroad_warning = OnscreenText(
-            text="WARNING: Approaching road edge!",
-            pos=(0, 0.6),
-            scale=0.1,
-            fg=(1, 0.3, 0.3, 1),
-            align=TextNode.ACenter,
-            mayChange=True
-        )
+        # on-screen displays
+        speed_display = OnscreenText(text="Speed: 0 km/h", pos=(-0.75, -0.95),
+                                     scale=0.07, fg=(1, 1, 1, 1), align=TextNode.ARight,
+                                     mayChange=True)
+        offroad_warning = OnscreenText(text="WARNING: Approaching road edge!", pos=(0, 0.6), scale=0.1,
+                                       fg=(1, 0.3, 0.3, 1), align=TextNode.ACenter,
+                                       mayChange=True)
         offroad_warning.hide()
 
-
+        # experiment counters
         env.agent.crash_vehicle_count = 0
         env.agent.off_road_count = 0
         start_time = time.time()
         math_score = 0
-        #print(HELP_MESSAGE)
         env.agent.expert_takeover = False
 
-
+        # prepare first math problem
         current_problem, current_answer = generate_math_problem()
         last_feedback_time = None
         waiting_for_answer = True
         showing_feedback = False
         feedback_text = ""
-        N_value = None
-        M_value = None
+        N_value = M_value = None
 
-
-        math_display = OnscreenText(
-            text=current_problem,
-            pos=(-1.2, 0.8),
-            scale=0.15,
-            fg=(1, 1, 0, 1),
-            align=TextNode.ALeft,
-            mayChange=True
-        )
-
-        options_display = OnscreenText(
-            text="",
-            pos=(-1.2, 0.5),
-            scale=0.1,
-            fg=(1, 1, 1, 1),
-            align=TextNode.ALeft,
-            mayChange=True
-        )
-
-        result_display = OnscreenText(
-            text="",
-            pos=(-1.2, 0.4),
-            scale=0.1,
-            fg=(0, 1, 0, 1),
-            align=TextNode.ALeft,
-            mayChange=True
-        )
-
+        math_display = OnscreenText(text=current_problem, pos=(-1.2, 0.8),
+                                    scale=0.15, fg=(1, 1, 0, 1),
+                                    align=TextNode.ALeft, mayChange=True)
+        options_display = OnscreenText(text="", pos=(-1.2, 0.5),
+                                       scale=0.1, fg=(1, 1, 1, 1),
+                                       align=TextNode.ALeft, mayChange=True)
+        result_display = OnscreenText(text="", pos=(-1.2, 0.4),
+                                      scale=0.1, fg=(0, 1, 0, 1),
+                                      align=TextNode.ALeft, mayChange=True)
         set_new_options()
 
-        #base.accept('n', handle_input, ['n'])
-        #base.accept('m', handle_input, ['m'])
-
+        # main loop
         while True:
-            previous_takeover = env.current_track_agent.expert_takeover
+            prev_takeover = env.current_track_agent.expert_takeover
 
+            # read controls from wheel or keyboard
             if USE_WHEEL:
                 lsw.update()
                 state = lsw.get_state(0)
                 lsw.play_damper_force(0, 80)
 
-                # Math input from wheel buttons
                 if waiting_for_answer:
                     if state.rgbButtons[5]:
                         handle_input('n')
                     elif state.rgbButtons[4]:
                         handle_input('m')
 
-                steering_raw = state.lX
-                throttle_raw = state.lY
-                brake_raw = state.lRz
-
-                steering = -max(min(steering_raw / 32767, 1.0), -1.0)
-                throttle = max(min((32767 - throttle_raw) / 65534, 1.0), 0.0)
-                brake = max(min((32767 - brake_raw) / 65534, 1.0), 0.0)
-
-                throttle_final = throttle - brake
-                throttle_final = max(min(throttle_final, 1.0), -1.0)
-
-                action = [steering, throttle_final]
-
+                steering = -max(min(state.lX / 32767, 1.0), -1.0)
+                throttle = max(min((32767 - state.lY) / 65534, 1.0), 0.0)
+                brake = max(min((32767 - state.lRz) / 65534, 1.0), 0.0)
+                action = [steering, max(min(throttle - brake, 1.0), -1.0)]
             else:
-                steering = 0.0
-                throttle = 0.0
-
+                steering = throttle = 0.0
                 if keys.is_button_down("a"):
                     steering += 1.0
                 if keys.is_button_down("d"):
@@ -228,7 +202,6 @@ if __name__ == "__main__":
                 if keys.is_button_down("s"):
                     throttle -= 1.0
 
-                # Math input from keyboard
                 if waiting_for_answer:
                     if keys.is_button_down("n"):
                         handle_input("n")
@@ -237,76 +210,97 @@ if __name__ == "__main__":
 
                 action = [steering, throttle]
 
-
             o, r, tm, tc, info = env.step(action)
 
+            # predict and draw future trajectory
+            x, y = env.agent.position
+            speed = env.agent.speed
+            heading = env.agent.heading_theta
+            vx, vy = env.agent.velocity
+
+            if np.hypot(vx, vy) > 1e-3:
+                vel_angle = np.arctan2(vy, vx)
+                beta = (vel_angle - heading + np.pi) % (2 * np.pi) - np.pi
+            else:
+                beta = 0.0
+
+            bike_model.reset(x, y, speed, heading, beta)
+            dt = 0.025
+            steps = int(total_time / dt)
+            traj = [(x, y)]
+            for _ in range(steps):
+                st = bike_model.predict(dt, [action[1], action[0]])
+                traj.append((st["x"], st["y"]))
+            draw_prediction_path(traj)
+
+            # === Predictive alert based on future trajectory ===
             try:
-                pos = env.agent.position
-                long, lat = env.agent.lane.local_coordinates(pos)
-                heading = env.agent.lane.heading_theta_at(long)
-                lane_width = env.agent.navigation.get_current_lane_width()
+                warn_predicted = False
+                for px, py in traj:
+                    long, lat = env.agent.lane.local_coordinates((px, py))
+                    w = env.agent.navigation.get_current_lane_width() / 2
+                    if min(lat + w, w - lat) < 0.9:
+                        warn_predicted = True
+                        break
 
-                # Edge distances (robust)
-                left_edge = -lane_width / 2
-                right_edge = lane_width / 2
-                left_dist = lat - left_edge
-                right_dist = right_edge - lat
-                min_dist_to_edge = min(left_dist, right_dist)
-                is_off_road = min_dist_to_edge < 0.9
+                # Predictive visual alert
+                if ENABLE_PREDICTIVE_VISUAL:
+                    if warn_predicted:
+                        if not hasattr(env, "_predictive_alert_node"):
+                            from direct.gui.DirectFrame import DirectFrame
+                            env._predictive_alert_node = DirectFrame(
+                                frameColor=(1, 0, 0, 0.3),
+                                frameSize=(-1, 1, -1, 1),
+                                parent=env.engine.aspect2d
+                            )
+                        env._predictive_alert_node.show()
+                    else:
+                        if hasattr(env, "_predictive_alert_node"):
+                            env._predictive_alert_node.hide()
 
-                velocity = env.agent.velocity
-                lane_normal = np.array([-np.sin(heading), np.cos(heading)])
-                v_lateral = np.dot(velocity, lane_normal)
+                # Predictive audio alert
+                if ENABLE_PREDICTIVE_AUDIO:
+                    now = time.time()
+                    if warn_predicted and not env._predictive_alert_audio_on:
+                        speak("Warning!")
+                        env._predictive_alert_audio_on = True
+                        env._last_predictive_alert_time = now
+                    elif not warn_predicted:
+                        env._predictive_alert_audio_on = False
+            except Exception:
+                if hasattr(env, "_predictive_alert_node"):
+                    env._predictive_alert_node.hide()
 
-                if abs(v_lateral) < 1e-2:
-                    t_offroad = None
-                    side = None
-                elif v_lateral > 0:
-                    t_offroad = (left_dist - 0.9) / v_lateral if left_dist > 0.9 else 0
-                    side = "left"
-                else:
-                    t_offroad = (right_dist - 0.9) / abs(v_lateral) if right_dist > 0.9 else 0
-                    side = "right"
-
-            except:
-                long = lat = heading = lane_width = left_dist = right_dist = min_dist_to_edge = v_lateral = 0
-                t_offroad = None
-                side = None
-                is_off_road = False
-
-            if t_offroad is None:
-                t_display = "∞"
-            elif t_offroad <= 0:
-                t_display = "0.00s (now)"
-            else:
-                t_display = f"{t_offroad:.2f}s ({side})"
-
-            debug_display.setFg((1, 0, 0, 1) if is_off_road else (1, 1, 1, 1))
-            debug_display.setText(
-                f"Pos: ({pos[0]:.1f}, {pos[1]:.1f})\n"
-                f"Lane: long={long:.1f}, lat={lat:.1f}\n"
-                f"L dist: {left_dist:.2f}  R dist: {right_dist:.2f}  (min={min_dist_to_edge:.2f})\n"
-                f"Heading: {np.degrees(heading):.1f}°\n"
-                f"v_lat: {v_lateral:.2f} m/s   t_off: {t_display}"
-            )
-
-            if t_offroad is not None and 0 < t_offroad * 1000 < OFFROAD_WARNING_MS:
-                offroad_warning.show()
-            else:
+            # offroad warning logic (legacy visual)
+            try:
+                warn = False
+                for px, py in traj:
+                    long, lat = env.agent.lane.local_coordinates((px, py))
+                    w = env.agent.navigation.get_current_lane_width() / 2
+                    if min(lat + w, w - lat) < 0.9:
+                        warn = True
+                        break
+                offroad_warning.show() if warn else offroad_warning.hide()
+            except Exception:
                 offroad_warning.hide()
 
+            # math timeout handling
+            if waiting_for_answer and time.time() - problem_start_time > time_limit:
+                result_display.setText("Time out!")
+                result_display.setFg((1, 0.5, 0, 1))
+                last_feedback_time = time.time()
+                waiting_for_answer = False
+                showing_feedback = True
 
+            # update speed display
+            speed_kmh = np.linalg.norm(env.agent.velocity) * 3.6
+            speed_display.setText(f"Speed: {int(speed_kmh)} km/h")
 
-            speed = np.linalg.norm(env.agent.velocity) * 3.6  # m/s → km/h
-            speed_display.setText(f"Speed: {int(speed)} km/h")
-
-
+            # exit on arrival
             if info.get("arrive_dest", False):
-                #print(f"Arrived! Total penalty: {env.episode_cost}")
-                break  # exit simulation
+                break
 
-
-
+            # reset math UI after feedback
             if showing_feedback and time.time() - last_feedback_time > 0.5:
                 current_problem, current_answer = generate_math_problem()
                 math_display.setText(current_problem)
@@ -316,28 +310,19 @@ if __name__ == "__main__":
                 showing_feedback = False
 
             env.render()
-            '''
-            env.render(
-                text={
-                    "Auto-Drive (Switch mode: T)": "on" if env.current_track_agent.expert_takeover else "off",
-                    "Total episode cost": env.episode_cost,
-                    "Keyboard Control": "W,A,S,D",
-                    "Answer with": "Press N or M",
-                }
-            )
-            '''
 
-            if not previous_takeover and env.current_track_agent.expert_takeover:
-                logging.warning("Auto-Drive mode may fail to solve some scenarios due to distribution mismatch")
+            # log takeover warning once
+            if not prev_takeover and env.current_track_agent.expert_takeover:
+                logging.warning("Auto-Drive may fail in some cases")
 
+            # reset environment on crash/arrival
             if (tm or tc) and info["arrive_dest"]:
                 env.reset()
                 env.current_track_agent.expert_takeover = True
 
     finally:
-        # === Save experiment results ===
+        # collect and save results
         completion_time = round(time.time() - start_time, 2)
-
         results = {
             "experimenter_id": experimenter_id,
             "condition": CONDITION,
@@ -346,21 +331,12 @@ if __name__ == "__main__":
             "num_offroad_events": env.agent.off_road_count,
             "completion_time": completion_time
         }
-
         df_new = pd.DataFrame([results])
-
         if os.path.exists(log_file):
             df_existing = pd.read_excel(log_file)
-            df_combined = pd.concat([df_existing, df_new], ignore_index=True)
-        else:
-            df_combined = df_new
-
-        df_combined.to_excel(log_file, index=False)
+            df_new = pd.concat([df_existing, df_new], ignore_index=True)
+        df_new.to_excel(log_file, index=False)
         print("Results saved.")
 
         env.close()
         lsw.shutdown()
- 
-
-
-
