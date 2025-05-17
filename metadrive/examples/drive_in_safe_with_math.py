@@ -14,7 +14,7 @@ from direct.showbase.ShowBase import ShowBase
 
 import logitech_steering_wheel as lsw
 
-from metadrive.envs.metadrive_env import get_condition_label, speak
+from metadrive.envs.metadrive_env import get_condition_label
 
 from direct.gui.OnscreenText import OnscreenText
 import numpy as np

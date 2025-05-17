@@ -13,10 +13,8 @@ from metadrive.envs.base_env import BaseEnv
 from metadrive.manager.traffic_manager import TrafficMode
 from metadrive.utils import clip, Config
 
-import pyttsx3
-import threading
-import queue
 import time
+
 import logitech_steering_wheel as lsw
 
 ENABLE_AUDIO = False
@@ -27,26 +25,25 @@ ENABLE_HAPTIC = False
 # ENABLE_VISUAL = True
 # ENABLE_HAPTIC = True
 
-tts_engine = pyttsx3.init()
-tts_engine.setProperty('rate', 150)
+import sys
+import threading
+import subprocess
 
-tts_queue = queue.Queue()
+def _beep_windows():
+    import winsound
+    winsound.Beep(1000, 200)
 
-def tts_worker_loop():
-    while True:
-        text = tts_queue.get()
-        if text is None:
-            break
-        tts_engine.say(text)
-        tts_engine.runAndWait()
-        tts_queue.task_done()
+def _beep_linux():
+    subprocess.Popen(['play', '-nq', '-t', 'alsa', 'synth', '0.1', 'sine', '1000'],
+                     stdout=subprocess.DEVNULL,
+                     stderr=subprocess.DEVNULL)
 
-# Start the TTS thread
-tts_thread = threading.Thread(target=tts_worker_loop, daemon=True)
-tts_thread.start()
+def beep():
+    if sys.platform == "win32":
+        threading.Thread(target=_beep_windows, daemon=True).start()
+    else:
+        _beep_linux()  # already non-blocking
 
-def speak(text):
-    tts_queue.put(text)
 
 def get_condition_label():
     if ENABLE_AUDIO and not ENABLE_VISUAL and not ENABLE_HAPTIC:
@@ -287,7 +284,7 @@ class MetaDriveEnv(BaseEnv):
                 self._is_currently_out_of_road = True
 
             if ENABLE_AUDIO and (now - self._last_out_of_road_audio_time > 0.5):
-                speak("Out of road")
+                beep()
                 self._last_out_of_road_audio_time = now
 
             if ENABLE_VISUAL:
@@ -330,7 +327,7 @@ class MetaDriveEnv(BaseEnv):
                     self._add_crash_visual_alert()
 
             if ENABLE_AUDIO and (time.time() - self._last_crash_vehicle_audio_time > 0.5):
-                speak("Crash with vehicle")
+                beep()
                 self._last_crash_vehicle_audio_time = time.time()
         else:
             self._is_currently_crash_vehicle = False
@@ -362,7 +359,7 @@ class MetaDriveEnv(BaseEnv):
         if crash_object and not self._is_currently_crash_object:
             step_info["cost"] = self.config["crash_object_cost"]
             if ENABLE_AUDIO:
-                speak("Crash with object")
+                beep()
         self._is_currently_crash_object = crash_object
 
         return step_info['cost'], step_info
