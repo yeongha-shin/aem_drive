@@ -7,7 +7,7 @@ import numpy as np
 import pandas as pd
 
 from metadrive.constants import HELP_MESSAGE
-from metadrive.envs.metadrive_env import MetaDriveEnv as ComplexEnv, get_condition_label, speak
+from metadrive.envs.metadrive_env import MetaDriveEnv as ComplexEnv, get_condition_label, beep
 from metadrive.component.vehicle_model.bicycle_model import BicycleModel
 from metadrive.policy.env_input_policy import EnvInputPolicy
 
@@ -262,11 +262,12 @@ if __name__ == "__main__":
                 if ENABLE_PREDICTIVE_AUDIO:
                     now = time.time()
                     if warn_predicted and not env._predictive_alert_audio_on:
-                        speak("Warning!")
-                        env._predictive_alert_audio_on = True
+                        # speak("Warning!")
+                        beep()
+                        # env._predictive_alert_audio_on = True
                         env._last_predictive_alert_time = now
-                    elif not warn_predicted:
-                        env._predictive_alert_audio_on = False
+                    # elif not warn_predicted:
+                        # env._predictive_alert_audio_on = False
             except Exception:
                 if hasattr(env, "_predictive_alert_node"):
                     env._predictive_alert_node.hide()
