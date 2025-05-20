@@ -28,20 +28,27 @@ from metadrive.component.map.pg_map import MapGenerateMethod
 prediction_path_node = None
 marker_nodes = []
 
-experimenter_id = "002"
+experimenter_id = os.getenv("EXPERIMENTER_ID", "002")
+log_data = os.getenv("LOG_DATA", "0") == "1"
+map_blocks = int(os.getenv("MAP_BLOCKS", "12"))
+condition = os.getenv("CONDITION", "none")  # "none", "visual", "audio", "haptic"
 log_file = "experiment_log.xlsx"
 
+ENABLE_PREDICTIVE_AUDIO  = condition == "audio"
+ENABLE_PREDICTIVE_VISUAL = condition == "visual"
+ENABLE_PREDICTIVE_HAPTIC = condition == "haptic"
 
-# Toggleable predictive feedback modes
-ENABLE_PREDICTIVE_AUDIO = False
-ENABLE_PREDICTIVE_VISUAL = False
-ENABLE_PREDICTIVE_HAPTIC = False
+# Base prediction time
+predict_time = 0.8
 
-# ENABLE_PREDICTIVE_AUDIO = True
-ENABLE_PREDICTIVE_VISUAL = True
-# ENABLE_PREDICTIVE_HAPTIC = True
+# Add condition-specific delay
+if condition == "audio":
+    predict_time += 0.15
+elif condition == "haptic":
+    predict_time += 0.155
+elif condition == "visual":
+    predict_time += 0.19
 
-predict_time = 0.8           # seconds ahead to predict trajectory
 time_limit = 8             # seconds to answer math problem
 
 # set experiment condition
@@ -144,8 +151,13 @@ if __name__ == "__main__":
         "agent_policy": EnvInputPolicy,
         "vehicle_config": {"show_navi_mark": False},
         "show_interface": False,
-        "show_coordinates": False
+        "show_coordinates": False,
+        "map_config": {
+            BaseMap.GENERATE_TYPE: MapGenerateMethod.BIG_BLOCK_NUM,
+            BaseMap.GENERATE_CONFIG: map_blocks
+        }
     })
+
     bike_model = BicycleModel()
 
     try:
@@ -400,8 +412,11 @@ if __name__ == "__main__":
         if os.path.exists(log_file):
             df_existing = pd.read_excel(log_file)
             df_new = pd.concat([df_existing, df_new], ignore_index=True)
-        df_new.to_excel(log_file, index=False)
-        print("Results saved.")
+        
+        if log_data:
+            df_new.to_excel(log_file, index=False)
+            print("Results saved.")
+
 
         env.close()
         lsw.shutdown()
