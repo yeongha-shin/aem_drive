@@ -13,10 +13,8 @@ from metadrive.envs.base_env import BaseEnv
 from metadrive.manager.traffic_manager import TrafficMode
 from metadrive.utils import clip, Config
 
-import pyttsx3
-import threading
-import queue
 import time
+
 import logitech_steering_wheel as lsw
 
 ENABLE_AUDIO = True
@@ -28,27 +26,6 @@ ENABLE_PREDICTIVE_VISUAL = True
 # ENABLE_AUDIO = True
 # ENABLE_VISUAL = True
 # ENABLE_HAPTIC = True
-
-# tts_engine = pyttsx3.init()
-# tts_engine.setProperty('rate', 150)
-
-# tts_queue = queue.Queue()
-
-# def tts_worker_loop():
-#     while True:
-#         text = tts_queue.get()
-#         if text is None:
-#             break
-#         tts_engine.say(text)
-#         tts_engine.runAndWait()
-#         tts_queue.task_done()
-
-# # Start the TTS thread
-# tts_thread = threading.Thread(target=tts_worker_loop, daemon=True)
-# tts_thread.start()
-
-# def speak(text):
-#     tts_queue.put(text)
 
 import sys
 import threading
@@ -316,8 +293,7 @@ class MetaDriveEnv(BaseEnv):
                 step_info["cost"] = self.config["out_of_road_cost"]
                 self._is_currently_out_of_road = True
 
-            if ENABLE_AUDIO and (now - self._last_out_of_road_audio_time > 0.5):
-                # speak("Out of road")
+            if ENABLE_AUDIO and (now - self._last_out_of_road_audio_time > 2.0):
                 beep()
                 self._last_out_of_road_audio_time = now
 
@@ -361,8 +337,7 @@ class MetaDriveEnv(BaseEnv):
                     self._add_crash_visual_alert()
 
             if ENABLE_AUDIO and (time.time() - self._last_crash_vehicle_audio_time > 0.5):
-                # speak("Crash with vehicle")
-                # beep()
+                beep()
                 self._last_crash_vehicle_audio_time = time.time()
         else:
             self._is_currently_crash_vehicle = False
@@ -393,9 +368,8 @@ class MetaDriveEnv(BaseEnv):
         crash_object = vehicle.crash_object
         if crash_object and not self._is_currently_crash_object:
             step_info["cost"] = self.config["crash_object_cost"]
-            # if ENABLE_AUDIO:
-                # speak("Crash with object")
-                # beep()
+            if ENABLE_AUDIO:
+                beep()
         self._is_currently_crash_object = crash_object
 
         return step_info['cost'], step_info
