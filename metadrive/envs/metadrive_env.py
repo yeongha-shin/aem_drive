@@ -17,7 +17,7 @@ import time
 
 import logitech_steering_wheel as lsw
 
-ENABLE_AUDIO = False
+ENABLE_AUDIO = True
 ENABLE_VISUAL = False
 ENABLE_HAPTIC = False
 
@@ -42,7 +42,7 @@ def _beep_linux():
                      stderr=subprocess.DEVNULL)
 
 def beep():
-    if sys.platform == "win32":
+    if sys.platform == "win32" or sys.platform == "win64":
         threading.Thread(target=_beep_windows, daemon=True).start()
     else:
         _beep_linux()  # already non-blocking
@@ -293,7 +293,7 @@ class MetaDriveEnv(BaseEnv):
                 step_info["cost"] = self.config["out_of_road_cost"]
                 self._is_currently_out_of_road = True
 
-            if ENABLE_AUDIO and (now - self._last_out_of_road_audio_time > 0.5):
+            if ENABLE_AUDIO and (now - self._last_out_of_road_audio_time > 2.0):
                 beep()
                 self._last_out_of_road_audio_time = now
 

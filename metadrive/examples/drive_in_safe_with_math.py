@@ -7,7 +7,7 @@ import numpy as np
 import pandas as pd
 
 from metadrive.constants import HELP_MESSAGE
-from metadrive.envs.metadrive_env import MetaDriveEnv as ComplexEnv, get_condition_label, speak
+from metadrive.envs.metadrive_env import MetaDriveEnv as ComplexEnv, get_condition_label, beep
 from metadrive.component.vehicle_model.bicycle_model import BicycleModel
 from metadrive.policy.env_input_policy import EnvInputPolicy
 
@@ -31,6 +31,8 @@ CONDITION = get_condition_label()
 # Toggleable predictive feedback modes
 ENABLE_PREDICTIVE_AUDIO = True
 ENABLE_PREDICTIVE_VISUAL = True
+ENABLE_PREDICTIVE_HAPTIC = True
+
 
 
 def draw_prediction_path(points):
@@ -122,6 +124,12 @@ if __name__ == "__main__":
 
     try:
         env.reset()
+
+        cam = env.engine.main_camera
+        cam.camera_dist = 0.5  # means exactly at the center of the car
+        cam.chase_camera_height = 1.5  # roughly driver's eye level
+        cam.camera_smooth = False  # disable smoothing for instant camera response
+
         keys = ShowBaseGlobal.base.mouseWatcherNode
 
         # attempt wheel initialization
@@ -262,11 +270,20 @@ if __name__ == "__main__":
                 if ENABLE_PREDICTIVE_AUDIO:
                     now = time.time()
                     if warn_predicted and not env._predictive_alert_audio_on:
-                        speak("Warning!")
-                        env._predictive_alert_audio_on = True
+                        # speak("Warning!")
+                        beep()
+                        # env._predictive_alert_audio_on = True
                         env._last_predictive_alert_time = now
-                    elif not warn_predicted:
-                        env._predictive_alert_audio_on = False
+                    # elif not warn_predicted:
+                        # env._predictive_alert_audio_on = False
+
+                # Predictive haptic feedback (vibration)
+                if ENABLE_PREDICTIVE_HAPTIC:
+                    if warn_predicted:
+                        lsw.play_dirt_road_effect(0, 30)
+                    else:
+                        lsw.stop_dirt_road_effect(0)
+
             except Exception:
                 if hasattr(env, "_predictive_alert_node"):
                     env._predictive_alert_node.hide()
