@@ -17,12 +17,10 @@ import time
 
 import logitech_steering_wheel as lsw
 
-ENABLE_AUDIO = True
+ENABLE_AUDIO = False
 ENABLE_VISUAL = False
 ENABLE_HAPTIC = False
 
-ENABLE_PREDICTIVE_AUDIO = True
-ENABLE_PREDICTIVE_VISUAL = True
 # ENABLE_AUDIO = True
 # ENABLE_VISUAL = True
 # ENABLE_HAPTIC = True
@@ -81,7 +79,7 @@ METADRIVE_DEFAULT_CONFIG = dict(
     random_lane_num=False,
     map_config = {
         BaseMap.GENERATE_TYPE: MapGenerateMethod.BIG_BLOCK_NUM,
-        BaseMap.GENERATE_CONFIG: 4,
+        BaseMap.GENERATE_CONFIG: 3,
         BaseMap.LANE_WIDTH: 8,
         BaseMap.LANE_NUM: 1,
         "exit_length": 50,
@@ -289,7 +287,7 @@ class MetaDriveEnv(BaseEnv):
 
         if out_of_road:
             if not self._is_currently_out_of_road:
-                self.agent.off_road_count += 1
+                #self.agent.off_road_count += 1
                 step_info["cost"] = self.config["out_of_road_cost"]
                 self._is_currently_out_of_road = True
 

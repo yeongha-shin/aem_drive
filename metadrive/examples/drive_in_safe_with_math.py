@@ -14,9 +14,15 @@ from metadrive.policy.env_input_policy import EnvInputPolicy
 from direct.gui.OnscreenText import OnscreenText
 from panda3d.core import TextNode, LineSegs, NodePath
 from direct.showbase import ShowBaseGlobal
+from panda3d.core import WindowProperties
+from panda3d.core import ClockObject
 
 # Wheel support
 import logitech_steering_wheel as lsw
+
+from metadrive.component.map.base_map import BaseMap
+from metadrive.component.map.pg_map import MapGenerateMethod
+
 
 # Globals for prediction line and experiment tracking
 prediction_path_node = None
@@ -24,14 +30,32 @@ marker_nodes = []
 
 experimenter_id = "002"
 log_file = "experiment_log.xlsx"
-total_time = 0.8           # seconds ahead to predict trajectory
-time_limit = 5             # seconds to answer math problem
-CONDITION = get_condition_label()
+
 
 # Toggleable predictive feedback modes
-ENABLE_PREDICTIVE_AUDIO = True
+ENABLE_PREDICTIVE_AUDIO = False
+ENABLE_PREDICTIVE_VISUAL = False
+ENABLE_PREDICTIVE_HAPTIC = False
+
+# ENABLE_PREDICTIVE_AUDIO = True
 ENABLE_PREDICTIVE_VISUAL = True
-ENABLE_PREDICTIVE_HAPTIC = True
+# ENABLE_PREDICTIVE_HAPTIC = True
+
+predict_time = 0.8           # seconds ahead to predict trajectory
+time_limit = 8             # seconds to answer math problem
+
+# set experiment condition
+condition_flags = []
+if ENABLE_PREDICTIVE_AUDIO:
+    condition_flags.append("audio")
+if ENABLE_PREDICTIVE_VISUAL:
+    condition_flags.append("visual")
+if ENABLE_PREDICTIVE_HAPTIC:
+    condition_flags.append("haptic")
+
+CONDITION = "+".join(condition_flags) if condition_flags else "none"
+
+
 
 
 
@@ -89,7 +113,8 @@ def set_new_options():
 def handle_input(key):
     """Check user input (n or m) against the correct answer and give feedback."""
     global waiting_for_answer, showing_feedback, last_feedback_time
-    global feedback_text, current_answer, math_score
+    global feedback_text, current_answer, math_correct, math_incorrect
+
 
     if not waiting_for_answer:
         return
@@ -97,12 +122,13 @@ def handle_input(key):
     selected = N_value if key == 'n' else M_value
     if selected == current_answer:
         feedback_text = "Correct!"
-        math_score += 1
+        math_correct += 1
         result_display.setFg((0, 1, 0, 1))
     else:
         feedback_text = "Wrong!"
-        math_score -= 1
+        math_incorrect += 1
         result_display.setFg((1, 0, 0, 1))
+
 
     result_display.setText(feedback_text)
     last_feedback_time = time.time()
@@ -125,6 +151,19 @@ if __name__ == "__main__":
     try:
         env.reset()
 
+        start_time = time.time()
+
+        
+        wp = WindowProperties()
+        wp.setFullscreen(False)        # or True if you want true fullscreen
+        wp.setUndecorated(True)        # hides title bar/borders
+        wp.setSize(1920, 1080)         # <- put your *actual* monitor resolution here
+        wp.setOrigin(0, 0)             # top-left corner
+        wp.setCursorHidden(True)       # hide mouse
+        env.engine.win.requestProperties(wp)
+
+
+        # set 1st person camera
         cam = env.engine.main_camera
         cam.camera_dist = 0.5  # means exactly at the center of the car
         cam.chase_camera_height = 1.5  # roughly driver's eye level
@@ -148,17 +187,14 @@ if __name__ == "__main__":
         speed_display = OnscreenText(text="Speed: 0 km/h", pos=(-0.75, -0.95),
                                      scale=0.07, fg=(1, 1, 1, 1), align=TextNode.ARight,
                                      mayChange=True)
-        offroad_warning = OnscreenText(text="WARNING: Approaching road edge!", pos=(0, 0.6), scale=0.1,
-                                       fg=(1, 0.3, 0.3, 1), align=TextNode.ACenter,
-                                       mayChange=True)
-        offroad_warning.hide()
 
-        # experiment counters
-        env.agent.crash_vehicle_count = 0
-        env.agent.off_road_count = 0
-        start_time = time.time()
-        math_score = 0
-        env.agent.expert_takeover = False
+        # setup variables for data collection
+        math_correct = 0
+        math_incorrect = 0
+        math_timeout = 0
+        offroad_time = 0.0
+        last_offroad = False
+        last_offroad_timestamp = time.time()
 
         # prepare first math problem
         current_problem, current_answer = generate_math_problem()
@@ -177,6 +213,12 @@ if __name__ == "__main__":
         result_display = OnscreenText(text="", pos=(-1.2, 0.4),
                                       scale=0.1, fg=(0, 1, 0, 1),
                                       align=TextNode.ALeft, mayChange=True)
+        offroad_debug_display = OnscreenText(
+            text="OFFROAD", pos=(0, 0.9), scale=0.15,
+            fg=(1, 0, 0, 1), align=TextNode.ACenter, mayChange=True
+        )
+        offroad_debug_display.hide()
+
         set_new_options()
 
         # main loop
@@ -220,6 +262,24 @@ if __name__ == "__main__":
 
             o, r, tm, tc, info = env.step(action)
 
+            try:
+                lane = env.agent.lane
+                _, lateral_offset = lane.local_coordinates(env.agent.position)
+                lane_width = env.agent.navigation.get_current_lane_width()
+                margin = -0.5  # small tolerance
+
+                is_offroad = abs(lateral_offset) > (lane_width / 2 + margin)
+            except:
+                is_offroad = True  # fail-safe: if lane undefined, assume off-road
+
+            dt = ClockObject.getGlobalClock().getDt()  # simulation time step
+
+            if is_offroad:
+                offroad_time += dt
+
+
+
+
             # predict and draw future trajectory
             x, y = env.agent.position
             speed = env.agent.speed
@@ -234,12 +294,12 @@ if __name__ == "__main__":
 
             bike_model.reset(x, y, speed, heading, beta)
             dt = 0.025
-            steps = int(total_time / dt)
+            steps = int(predict_time / dt)
             traj = [(x, y)]
             for _ in range(steps):
                 st = bike_model.predict(dt, [action[1], action[0]])
                 traj.append((st["x"], st["y"]))
-            draw_prediction_path(traj)
+            # draw_prediction_path(traj)
 
             # === Predictive alert based on future trajectory ===
             try:
@@ -247,7 +307,7 @@ if __name__ == "__main__":
                 for px, py in traj:
                     long, lat = env.agent.lane.local_coordinates((px, py))
                     w = env.agent.navigation.get_current_lane_width() / 2
-                    if min(lat + w, w - lat) < 0.9:
+                    if min(lat + w, w - lat) < 0.0:
                         warn_predicted = True
                         break
 
@@ -269,18 +329,14 @@ if __name__ == "__main__":
                 # Predictive audio alert
                 if ENABLE_PREDICTIVE_AUDIO:
                     now = time.time()
-                    if warn_predicted and not env._predictive_alert_audio_on:
-                        # speak("Warning!")
+                    if warn_predicted and (not hasattr(env, "_last_predictive_alert_time") or now - env._last_predictive_alert_time > 1.0):
                         beep()
-                        # env._predictive_alert_audio_on = True
                         env._last_predictive_alert_time = now
-                    # elif not warn_predicted:
-                        # env._predictive_alert_audio_on = False
 
                 # Predictive haptic feedback (vibration)
                 if ENABLE_PREDICTIVE_HAPTIC:
                     if warn_predicted:
-                        lsw.play_dirt_road_effect(0, 30)
+                        lsw.play_dirt_road_effect(0, 20)
                     else:
                         lsw.stop_dirt_road_effect(0)
 
@@ -288,18 +344,6 @@ if __name__ == "__main__":
                 if hasattr(env, "_predictive_alert_node"):
                     env._predictive_alert_node.hide()
 
-            # offroad warning logic (legacy visual)
-            try:
-                warn = False
-                for px, py in traj:
-                    long, lat = env.agent.lane.local_coordinates((px, py))
-                    w = env.agent.navigation.get_current_lane_width() / 2
-                    if min(lat + w, w - lat) < 0.9:
-                        warn = True
-                        break
-                offroad_warning.show() if warn else offroad_warning.hide()
-            except Exception:
-                offroad_warning.hide()
 
             # math timeout handling
             if waiting_for_answer and time.time() - problem_start_time > time_limit:
@@ -308,6 +352,8 @@ if __name__ == "__main__":
                 last_feedback_time = time.time()
                 waiting_for_answer = False
                 showing_feedback = True
+                math_timeout += 1
+
 
             # update speed display
             speed_kmh = np.linalg.norm(env.agent.velocity) * 3.6
@@ -343,11 +389,13 @@ if __name__ == "__main__":
         results = {
             "experimenter_id": experimenter_id,
             "condition": CONDITION,
-            "math_score": math_score,
-            "num_collisions": env.agent.crash_vehicle_count,
-            "num_offroad_events": env.agent.off_road_count,
+            "n_math_correct": math_correct,
+            "n_math_incorrect": math_incorrect,
+            "n_math_timeout": math_timeout,
+            "time_offroad": round(offroad_time, 2),
             "completion_time": completion_time
         }
+
         df_new = pd.DataFrame([results])
         if os.path.exists(log_file):
             df_existing = pd.read_excel(log_file)
