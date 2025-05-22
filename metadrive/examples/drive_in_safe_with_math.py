@@ -159,7 +159,7 @@ if __name__ == "__main__":
     })
 
     bike_model = BicycleModel()
-
+    
     try:
         env.reset()
 
@@ -169,7 +169,7 @@ if __name__ == "__main__":
         wp = WindowProperties()
         wp.setFullscreen(False)        # or True if you want true fullscreen
         wp.setUndecorated(True)        # hides title bar/borders
-        wp.setSize(1920, 1080)         # <- put your *actual* monitor resolution here
+        wp.setSize(2560, 1440)         # <- put your *actual* monitor resolution here
         wp.setOrigin(0, 0)             # top-left corner
         wp.setCursorHidden(True)       # hide mouse
         env.engine.win.requestProperties(wp)
@@ -278,7 +278,7 @@ if __name__ == "__main__":
                 lane = env.agent.lane
                 _, lateral_offset = lane.local_coordinates(env.agent.position)
                 lane_width = env.agent.navigation.get_current_lane_width()
-                margin = -0.5  # small tolerance
+                margin = -0.9  # small tolerance
 
                 is_offroad = abs(lateral_offset) > (lane_width / 2 + margin)
             except:
@@ -404,7 +404,7 @@ if __name__ == "__main__":
             "n_math_correct": math_correct,
             "n_math_incorrect": math_incorrect,
             "n_math_timeout": math_timeout,
-            "time_offroad": round(offroad_time, 2),
+            "time_offroad": round(offroad_time, 4),
             "completion_time": completion_time
         }
 

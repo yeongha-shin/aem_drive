@@ -8,12 +8,12 @@ from itertools import combinations
 
 # 1. Load your data (ensure long format: Subject, Condition, Offroad, MathScore)
 #    Replace 'your_data.csv' with your actual filename
-df = pd.read_csv('example_data.csv')
+df = pd.read_csv('C:\\Users\\szypy\\Desktop\\AEM\\aem_drive\\data_clean.csv')
 
 
 # List of conditions
 conditions = df['Condition'].unique()
-df = pd.read_csv("example_data.csv")
+df = pd.read_csv("C:\\Users\\szypy\\Desktop\\AEM\\aem_drive\\data_clean.csv")
 
 # Replace any blank / NaN entries in Condition with "None"
 df["Condition"] = df["Condition"].fillna("None")
